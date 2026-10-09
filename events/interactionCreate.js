@@ -198,10 +198,7 @@ async function handleRecruitmentStatus(interaction, client) {
 
 async function handleApplicationAccept(interaction, client, appId) {
   if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
-    return safeReply(interaction, {
-      content: '❌ ليس لديك صلاحية لهذا الإجراء',
-      ephemeral: true
-    });
+    return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   await safeDefer(interaction);
@@ -212,7 +209,6 @@ async function handleApplicationAccept(interaction, client, appId) {
       return safeReply(interaction, { content: '❌ التقديم غير موجود', ephemeral: true });
     }
 
-    /* ─── جلب العضو ─── */
     const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
     const member = await guild.members.fetch(application.discordId).catch(() => null);
 
@@ -223,9 +219,7 @@ async function handleApplicationAccept(interaction, client, appId) {
       });
     }
 
-    /* ═══════════════════════════════════════════════════
-     *  1. إضافة العضو في Firebase
-     *  ═══════════════════════════════════════════════════ */
+    // 1. إضافة العضو في Firebase
     const addResult = await firebase.addMember(application.discordId, {
       name: application.name,
       roleId: CONFIG.ROLES.MP_TRAINEE
@@ -235,40 +229,42 @@ async function handleApplicationAccept(interaction, client, appId) {
       throw new Error('فشل حفظ العضو في قاعدة البيانات');
     }
 
-    /* ═══════════════════════════════════════════════════
-     *  2. إعطاء الرتبة + تغيير الاسم
-     *  ═══════════════════════════════════════════════════ */
-    /* ═══════════════════════════════════════════════════
-     *  إعطاء الرتبة — مع تسجيل تفاصيل الخطأ
-     *  ═══════════════════════════════════════════════════ */
+    // 2. إعطاء الرتبة
+    let roleAdded = false;
     try {
-      await member.roles.add(CONFIG.ROLES.MP_TRAINEE);
-      console.log(`[Accept] ✅ تم إعطاء رتبة Trainee لـ ${member.user.tag}`);
+      await member.roles.add(CONFIG.ROLES.MP_TRAINEE, 'قبول التقديم');
+      roleAdded = true;
+      console.log(`[Accept] ✅ تم إعطاء الرتبة`);
     } catch (roleErr) {
-      console.error(`[Accept] ❌ فشل إعطاء الرتبة:`);
-      console.error(`   Error: ${roleErr.message}`);
-      console.error(`   Code: ${roleErr.code}`);
-      console.error(`   Bot Highest Role: ${guild.members.me.roles.highest.name} (position: ${guild.members.me.roles.highest.position})`);
-      console.error(`   Target Role: ${CONFIG.ROLES.MP_TRAINEE}`);
+      console.error(`[Accept] ❌ فشل إعطاء الرتبة:`, roleErr.message, roleErr.code);
     }
 
-    /* ═══════════════════════════════════════════════════
-     *  تغيير الاسم — مع تسجيل تفاصيل الخطأ
-     *  ═══════════════════════════════════════════════════ */
-    try {
-      await member.setNickname(addResult.fullName);
-      console.log(`[Accept] ✅ تم تغيير الاسم إلى ${addResult.fullName}`);
-    } catch (nickErr) {
-      console.error(`[Accept] ❌ فشل تغيير الاسم:`);
-      console.error(`   Error: ${nickErr.message}`);
-      console.error(`   Code: ${nickErr.code}`);
-      console.error(`   Bot Highest Position: ${guild.members.me.roles.highest.position}`);
-      console.error(`   Member Highest Position: ${member.roles.highest.position}`);
+    // 3. ✅ انتظار بسيط قبل تغيير الاسم
+    await new Promise(r => setTimeout(r, 1500));
+
+    // 4. ✅ تغيير الاسم مع إعادة محاولة
+    const nicknameToSet = addResult.fullName;
+    let nicknameSet = false;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        await member.setNickname(nicknameToSet, 'قبول التقديم');
+        nicknameSet = true;
+        console.log(`[Accept] ✅ تم تغيير الاسم (محاولة ${attempt})`);
+        break;
+      } catch (nickErr) {
+        console.error(`[Accept] ❌ محاولة ${attempt}:`, nickErr.message, `(code: ${nickErr.code})`);
+        if (attempt < 3) await new Promise(r => setTimeout(r, 1500));
+      }
     }
-    /* ═══════════════════════════════════════════════════
-     *  3. إصدار الشهادة
-     *  ═══════════════════════════════════════════════════ */
-    const certResult = await certificates.issueCertificate(client, {
+
+    if (!nicknameSet) {
+      console.error(`[Accept] ⚠️ فشل تغيير الاسم نهائياً`);
+      console.error(`   Bot: ${guild.members.me.roles.highest.name} (${guild.members.me.roles.highest.position})`);
+      console.error(`   Member: ${member.roles.highest.name} (${member.roles.highest.position})`);
+    }
+
+    // 5. إصدار الشهادة
+    await certificates.issueCertificate(client, {
       discordId: application.discordId,
       name: application.name,
       militaryId: addResult.militaryId,
@@ -281,27 +277,19 @@ async function handleApplicationAccept(interaction, client, appId) {
       logToChannel: true
     });
 
-    /* ═══════════════════════════════════════════════════
-     *  4. إرسال DM ترحيبي
-     *  ═══════════════════════════════════════════════════ */
+    // 6. DM ترحيبي
     try {
       const welcomeEmbed = embeds.welcomeDM(client, {
         name: application.name,
         militaryId: addResult.militaryId
       });
       await member.send({ embeds: [welcomeEmbed] }).catch(() => {});
-    } catch (dmErr) {
-      console.warn('[Accept] فشل إرسال الترحيب:', dmErr.message);
-    }
+    } catch {}
 
-    /* ═══════════════════════════════════════════════════
-     *  5. حذف التقديم من Firebase
-     *  ═══════════════════════════════════════════════════ */
+    // 7. حذف التقديم
     await firebase.deleteApplication(appId);
 
-    /* ═══════════════════════════════════════════════════
-     *  6. تحديث الرسالة
-     *  ═══════════════════════════════════════════════════ */
+    // 8. تحديث الرسالة
     const newEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor(CONFIG.COLORS.SUCCESS)
       .setTitle('✅ تم قبول التقديم')
@@ -312,9 +300,6 @@ async function handleApplicationAccept(interaction, client, appId) {
       components: []
     }).catch(() => {});
 
-    /* ═══════════════════════════════════════════════════
-     *  7. لوقات
-     *  ═══════════════════════════════════════════════════ */
     await logger.logApplicationAccepted(client, {
       name: application.name,
       discordId: application.discordId,
@@ -322,13 +307,18 @@ async function handleApplicationAccept(interaction, client, appId) {
       by: interaction.user.id
     }).catch(() => {});
 
-    /* ═══════════════════════════════════════════════════
-     *  8. تحديث اللوحة المتزامنة
-     *  ═══════════════════════════════════════════════════ */
     await refreshSynchronizedPanel(client);
 
+    const statusLine = [
+      roleAdded ? '✅ الرتبة' : '⚠️ الرتبة فشلت',
+      nicknameSet ? '✅ الاسم' : '⚠️ الاسم فشل'
+    ];
+
     await safeReply(interaction, {
-      content: `✅ تم قبول **${application.name}** — الرقم: \`${addResult.militaryId}\``,
+      content:
+        `✅ تم قبول **${application.name}**\n` +
+        `🆔 الرقم: \`${addResult.militaryId}\`\n` +
+        `${statusLine.join(' | ')}`,
       ephemeral: true
     });
 
@@ -341,12 +331,10 @@ async function handleApplicationAccept(interaction, client, appId) {
   }
 }
 
+
 async function handleApplicationReject(interaction, client, appId) {
   if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
-    return safeReply(interaction, {
-      content: '❌ ليس لديك صلاحية لهذا الإجراء',
-      ephemeral: true
-    });
+    return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   await safeDefer(interaction);
@@ -360,59 +348,59 @@ async function handleApplicationReject(interaction, client, appId) {
     const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
     const member = await guild.members.fetch(application.discordId).catch(() => null);
 
-    /* ─── إعطاء رتبة مرفوض ─── */
     let roleAdded = false;
+    let dmSent = false;
+
     if (member) {
+      // إعطاء رتبة REJECTED
       try {
-        await member.roles.add(CONFIG.ROLES.REJECTED);
+        await member.roles.add(CONFIG.ROLES.REJECTED, 'رفض التقديم');
         roleAdded = true;
-        console.log(`[Reject] ✅ تم إعطاء رتبة REJECTED لـ ${member.user.tag}`);
+        console.log(`[Reject] ✅ تم إعطاء رتبة REJECTED`);
       } catch (roleErr) {
-        console.error(`[Reject] ❌ فشل إعطاء الرتبة:`, roleErr.message);
+        console.error(`[Reject] ❌ فشل إعطاء الرتبة:`, roleErr.message, roleErr.code);
       }
 
-      /* ─── DM الرفض ─── */
+      // ✅ إرسال DM الرفض
       try {
         const rejectEmbed = embeds.rejectedDM(client);
-        await member.send({ embeds: [rejectEmbed] }).catch(() => {});
+        await member.send({ embeds: [rejectEmbed] });
+        dmSent = true;
+        console.log(`[Reject] ✅ تم إرسال DM الرفض`);
       } catch (dmErr) {
-        console.warn('[Reject] فشل إرسال DM:', dmErr.message);
+        console.warn('[Reject] ❌ فشل DM:', dmErr.message);
       }
     }
 
-    /* ─── تحديث حالة التقديم في Firebase (بدون حذف) ─── */
+    // تحديث Firebase
     await firebase.updateApplication(appId, {
       status: 'rejected',
       rejectedBy: interaction.user.id,
       rejectedAt: Date.now()
     });
 
-    /* ─── تحديث الرسالة: نضيف زر "إزالة الرفض" ─── */
+    // تحديث الرسالة
     const newEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor(CONFIG.COLORS.DANGER)
       .setTitle('❌ تم رفض التقديم')
       .setFooter({ text: `تم الرفض بواسطة ${interaction.user.tag}` });
 
-    /* ─── إضافة زر "إزالة الرفض" لو الرتبة أُعطيت ─── */
-    const components = [];
-    if (roleAdded) {
-      components.push(
-        new ActionRowBuilder().addComponents(
-          new ButtonBuilder()
-            .setCustomId(`app_remove_reject_${appId}`)
-            .setLabel('إزالة الرفض')
-            .setEmoji('🔄')
-            .setStyle(ButtonStyle.Secondary)
-        )
-      );
-    }
+    // ✅ دائماً نضيف زر إزالة الرفض
+    const components = [
+      new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`app_remove_reject_${appId}`)
+          .setLabel('إزالة الرفض (السماح بإعادة التقديم)')
+          .setEmoji('🔄')
+          .setStyle(ButtonStyle.Secondary)
+      )
+    ];
 
     await interaction.message.edit({
       embeds: [newEmbed],
       components: components
     }).catch(() => {});
 
-    /* ─── لوق ─── */
     await logger.logApplicationRejected(client, {
       name: application.name,
       discordId: application.discordId,
@@ -420,10 +408,15 @@ async function handleApplicationReject(interaction, client, appId) {
       reason: 'قرار إداري'
     }).catch(() => {});
 
+    const statusLine = [];
+    statusLine.push(roleAdded ? '✅ رتبة الرفض أُعطيت' : '⚠️ فشل إعطاء رتبة الرفض');
+    statusLine.push(dmSent ? '✅ DM أُرسل' : '⚠️ فشل DM');
+
     await safeReply(interaction, {
-      content: roleAdded
-        ? `❌ تم رفض **${application.name}**\n🔄 يمكنك إزالة الرفض من الزر الجديد في الرسالة`
-        : `⚠️ تم تحديث الحالة لكن فشل إعطاء الرتبة — راجع صلاحيات البوت`,
+      content:
+        `❌ تم رفض **${application.name}**\n` +
+        `${statusLine.join(' | ')}\n` +
+        `🔄 يمكنك إزالة الرفض من الزر في الرسالة`,
       ephemeral: true
     });
 
@@ -435,6 +428,7 @@ async function handleApplicationReject(interaction, client, appId) {
     });
   }
 }
+
 /* ═══════════════════════════════════════════════════════════
  *  إزالة الرفض — يسمح للمرفوض بالتقديم مرة أخرى
  *  ═══════════════════════════════════════════════════════════ */
@@ -558,18 +552,18 @@ async function handleReportSubmit(interaction, client) {
 
   const typeInput = new TextInputBuilder()
     .setCustomId('report_type')
-    .setLabel('نوع التقرير (إجباري)')
+    .setLabel('نوع التقرير')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setPlaceholder('مثال: دورية، تفتيش، تحقيق')
+    .setPlaceholder('دورية / تفتيش / تحقيق / مرافقة')
     .setMaxLength(100);
 
   const timeInput = new TextInputBuilder()
     .setCustomId('report_time')
-    .setLabel('الوقت (إجباري)')
+    .setLabel('الوقت (من - إلى)')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setPlaceholder('مثال: 22:30 - 23:15')
+    .setPlaceholder('22:30 - 23:15')
     .setMaxLength(50);
 
   const teamInput = new TextInputBuilder()
@@ -577,16 +571,32 @@ async function handleReportSubmit(interaction, client) {
     .setLabel('الفريق / القطاع (اختياري)')
     .setStyle(TextInputStyle.Short)
     .setRequired(false)
-    .setPlaceholder('مثال: قطاع شمال')
+    .setPlaceholder('قطاع شمال')
     .setMaxLength(100);
 
   const actionsInput = new TextInputBuilder()
     .setCustomId('report_actions')
-    .setLabel('الإجراءات + استخدام القوة + الحوادث')
+    .setLabel('الإجراءات المنفذة')
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setPlaceholder('اذكر كل الإجراءات + استخدام القوة + الحوادث + الأعراض الجانبية')
-    .setMaxLength(1500);
+    .setPlaceholder('اذكر جميع الإجراءات التي قمت بها...')
+    .setMaxLength(1000);
+
+  const forceInput = new TextInputBuilder()
+    .setCustomId('report_force')
+    .setLabel('استخدام القوة (إن وُجد)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setPlaceholder('مثال: توقيف - لا يوجد')
+    .setMaxLength(200);
+
+  const incidentsInput = new TextInputBuilder()
+    .setCustomId('report_incidents')
+    .setLabel('حوادث أو أعراض جانبية (إن وُجدت)')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(false)
+    .setPlaceholder('اذكر أي حوادث حصلت...')
+    .setMaxLength(500);
 
   const proofInput = new TextInputBuilder()
     .setCustomId('report_proof')
@@ -611,22 +621,64 @@ async function handleReportSubmitModal(interaction, client) {
   await safeDefer(interaction);
 
   try {
-    /* ─── جلب العضو من Firebase ─── */
-    const member = await firebase.getMember(interaction.user.id);
+    // ✅ 1. محاولة جلب العضو من Firebase
+    let member = await firebase.getMember(interaction.user.id);
 
+    // ✅ 2. Fallback: لو ما موجود، نحاول إضافته تلقائياً
     if (!member) {
-      return safeReply(interaction, {
-        content: '❌ أنت غير مسجل في الشرطة العسكرية',
-        ephemeral: true
+      console.log(`[ReportSubmit] العضو ${interaction.user.id} غير موجود — محاولة إضافة تلقائية`);
+
+      const guild = await client.guilds.fetch(CONFIG.GUILD_ID).catch(() => null);
+      const guildMember = guild ? await guild.members.fetch(interaction.user.id).catch(() => null) : null;
+
+      if (!guildMember) {
+        return safeReply(interaction, {
+          content: '❌ أنت غير موجود في السيرفر',
+          ephemeral: true
+        });
+      }
+
+      // البحث عن رتبة عسكرية
+      const militaryRole = CONFIG.ALL_RANKS.find(r => guildMember.roles.cache.has(r));
+
+      if (!militaryRole) {
+        return safeReply(interaction, {
+          content: '❌ ليس لديك أي رتبة عسكرية — تواصل مع القيادة',
+          ephemeral: true
+        });
+      }
+
+      // استخراج الاسم
+      let displayName = guildMember.nickname || guildMember.displayName || guildMember.user.username;
+      displayName = displayName.replace(/^\[M-\d+\]\s*/, '').trim();
+      if (!displayName || displayName.length < 2) {
+        displayName = guildMember.user.username;
+      }
+
+      // إضافة تلقائية
+      await firebase.addMember(interaction.user.id, {
+        name: displayName,
+        roleId: militaryRole
       });
+
+      member = await firebase.getMember(interaction.user.id);
+
+      if (!member) {
+        return safeReply(interaction, {
+          content: '❌ فشل الإضافة التلقائية — تواصل مع القيادة',
+          ephemeral: true
+        });
+      }
+
+      console.log(`[ReportSubmit] ✅ تم إضافة العضو: ${displayName}`);
     }
 
-    /* ─── جمع البيانات ─── */
+    // ✅ 3. بناء بيانات التقرير
     const reportData = {
       id: generateReportId(),
       discordId: interaction.user.id,
-      name: member.nameOriginal || member.name,
-      militaryId: member.militaryId,
+      name: member.nameOriginal || member.name || 'Unknown',
+      militaryId: member.militaryId || 'M-XX',
       code: `${member.militaryId}-${Math.floor(1000 + Math.random() * 9000)}`,
       reportType: interaction.fields.getTextInputValue('report_type'),
       time: interaction.fields.getTextInputValue('report_time'),
@@ -636,23 +688,26 @@ async function handleReportSubmitModal(interaction, client) {
       submittedAt: Date.now()
     };
 
-    /* ─── حفظ في Firebase ─── */
+    // ✅ 4. حفظ في Firebase
     await firebase.saveReport(reportData.id, reportData);
 
-    /* ─── إرسال إلى قناة التقارير ─── */
+    // ✅ 5. إرسال لقناة التقارير
     const logChannel = await client.channels.fetch(CONFIG.CHANNELS.REPORTS_LOG).catch(() => null);
 
-    if (logChannel) {
-      const embed = embeds.reportLogEmbed(client, reportData);
-      const buttons = embeds.reportActionButtons(reportData.id);
-
-      await logChannel.send({
-        embeds: [embed],
-        components: [buttons]
+    if (!logChannel) {
+      console.error('[ReportSubmit] قناة التقارير غير موجودة');
+      return safeReply(interaction, {
+        content: '⚠️ تم حفظ التقرير لكن فشل إرساله للإدارة — تواصل مع القيادة',
+        ephemeral: true
       });
     }
 
-    /* ─── لوق ─── */
+    const embed = embeds.reportLogEmbed(client, reportData);
+    const buttons = embeds.reportActionButtons(reportData.id);
+
+    await logChannel.send({ embeds: [embed], components: [buttons] });
+
+    // ✅ 6. لوق
     await logger.logReportSubmitted(client, reportData).catch(() => {});
 
     await safeReply(interaction, {
@@ -1195,7 +1250,10 @@ async function handleTicketArmyModal(interaction, client) {
     const targetId = interaction.fields.getTextInputValue('target_id') || 'غير محدد';
     const details = interaction.fields.getTextInputValue('details');
 
-    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_ARMY);
+    // ✅ إصلاح: بدون بادئة مزدوجة
+    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_ARMY); // MP_1234
+    const channelName = ticketId; // ✅ نفسها بدون تكرار
+
     const ticketData = {
       ticketId,
       type: 'army',
@@ -1208,52 +1266,76 @@ async function handleTicketArmyModal(interaction, client) {
       createdAt: Date.now()
     };
 
-    /* ─── إنشاء الروم ─── */
-    const channelName = `MP_${ticketId}`;
+    // ✅ إصلاح: التحقق من صلاحية قناة الأب
+    let parentId = CONFIG.CHANNELS.TICKET_ARMY;
+    if (parentId) {
+      const parent = guild.channels.cache.get(parentId);
+      if (!parent || parent.type !== ChannelType.GuildCategory) {
+        console.warn(`[TicketArmy] parent ID ${parentId} ليس فئة — تم إلغاء parent`);
+        parentId = null;
+      }
+    }
+
+    // ✅ إصلاح: صلاحيات محسّنة — كل الرتب العسكرية ترى التذكرة
+    const permissionOverwrites = [
+      {
+        id: guild.roles.everyone.id,
+        deny: [PermissionFlagsBits.ViewChannel]
+      },
+      {
+        id: interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles
+        ]
+      },
+      {
+        id: client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.EmbedLinks
+        ]
+      }
+    ];
+
+    // ✅ إضافة كل الرتب العسكرية
+    for (const roleId of CONFIG.ALL_RANKS) {
+      permissionOverwrites.push({
+        id: roleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory
+        ]
+      });
+    }
 
     const newChannel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
-      parent: CONFIG.CHANNELS.TICKET_ARMY,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionFlagsBits.ViewChannel]
-        },
-        {
-          id: interaction.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory
-          ]
-        },
-        {
-          id: client.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ManageChannels,
-            PermissionFlagsBits.ManageMessages
-          ]
-        }
-      ]
+      parent: parentId || undefined,
+      topic: `تذكرة ضد عسكري | صاحب التذكرة: ${interaction.user.tag}`,
+      permissionOverwrites
     });
 
-    /* ─── إرسال الإمبيد + زر الاستلام ─── */
+    // إرسال الإمبيد + الأزرار
     const embed = embeds.ticketEmbed(client, ticketData);
     const buttons = embeds.ticketClaimButtons();
 
     await newChannel.send({ embeds: [embed], components: [buttons] });
 
-    /* ─── حفظ التذكرة ─── */
+    // حفظ
     await firebase.saveTicket(ticketId, {
       ...ticketData,
       channelId: newChannel.id,
       status: 'open'
     });
 
-    /* ─── لوق ─── */
     await logger.logTicketCreated(client, {
       ticketId,
       ticketType: 'army',
@@ -1268,59 +1350,11 @@ async function handleTicketArmyModal(interaction, client) {
 
   } catch (err) {
     console.error('[TicketArmy]', err);
-    await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
+    await safeReply(interaction, {
+      content: `❌ ${err.message}`,
+      ephemeral: true
+    });
   }
-}
-
-async function handleTicketMP(interaction, client) {
-  const modal = new ModalBuilder()
-    .setCustomId('ticket_mp_modal')
-    .setTitle('🎖️ شكوى ضد شرطي عسكري');
-
-  const nameInput = new TextInputBuilder()
-    .setCustomId('creator_name')
-    .setLabel('اسم شخصية مقدم الشكوى')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setMaxLength(100);
-
-  const idInput = new TextInputBuilder()
-    .setCustomId('creator_id')
-    .setLabel('آيدي مقدم الشكوى (في السيرفر)')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false)
-    .setMaxLength(50);
-
-  const targetNameInput = new TextInputBuilder()
-    .setCustomId('target_name')
-    .setLabel('اسم الشرطي المشتكى عليه')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(true)
-    .setMaxLength(100);
-
-  const targetIdInput = new TextInputBuilder()
-    .setCustomId('target_id')
-    .setLabel('آيدي الشرطي (إن وجد)')
-    .setStyle(TextInputStyle.Short)
-    .setRequired(false)
-    .setMaxLength(50);
-
-  const detailsInput = new TextInputBuilder()
-    .setCustomId('details')
-    .setLabel('تفاصيل الشكوى + رابط الأدلة')
-    .setStyle(TextInputStyle.Paragraph)
-    .setRequired(true)
-    .setMaxLength(2000);
-
-  modal.addComponents(
-    new ActionRowBuilder().addComponents(nameInput),
-    new ActionRowBuilder().addComponents(idInput),
-    new ActionRowBuilder().addComponents(targetNameInput),
-    new ActionRowBuilder().addComponents(targetIdInput),
-    new ActionRowBuilder().addComponents(detailsInput)
-  );
-
-  await interaction.showModal(modal);
 }
 
 async function handleTicketMPModal(interaction, client) {
@@ -1334,7 +1368,10 @@ async function handleTicketMPModal(interaction, client) {
     const targetId = interaction.fields.getTextInputValue('target_id') || 'غير محدد';
     const details = interaction.fields.getTextInputValue('details');
 
-    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_MP);
+    // ✅ إصلاح: بدون بادئة مزدوجة
+    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_MP); // M_1234
+    const channelName = ticketId;
+
     const ticketData = {
       ticketId,
       type: 'mp',
@@ -1347,52 +1384,67 @@ async function handleTicketMPModal(interaction, client) {
       createdAt: Date.now()
     };
 
-    /* ─── إنشاء الروم ─── */
-    const channelName = `M_${ticketId}`;
+    let parentId = CONFIG.CHANNELS.TICKET_MP;
+    if (parentId) {
+      const parent = guild.channels.cache.get(parentId);
+      if (!parent || parent.type !== ChannelType.GuildCategory) {
+        parentId = null;
+      }
+    }
+
+    const permissionOverwrites = [
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
+      {
+        id: interaction.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+          PermissionFlagsBits.AttachFiles
+        ]
+      },
+      {
+        id: client.user.id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ManageChannels,
+          PermissionFlagsBits.ManageMessages,
+          PermissionFlagsBits.EmbedLinks
+        ]
+      }
+    ];
+
+    for (const roleId of CONFIG.ALL_RANKS) {
+      permissionOverwrites.push({
+        id: roleId,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory
+        ]
+      });
+    }
 
     const newChannel = await guild.channels.create({
       name: channelName,
       type: ChannelType.GuildText,
-      parent: CONFIG.CHANNELS.TICKET_MP,
-      permissionOverwrites: [
-        {
-          id: guild.roles.everyone.id,
-          deny: [PermissionFlagsBits.ViewChannel]
-        },
-        {
-          id: interaction.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ReadMessageHistory
-          ]
-        },
-        {
-          id: client.user.id,
-          allow: [
-            PermissionFlagsBits.ViewChannel,
-            PermissionFlagsBits.SendMessages,
-            PermissionFlagsBits.ManageChannels,
-            PermissionFlagsBits.ManageMessages
-          ]
-        }
-      ]
+      parent: parentId || undefined,
+      topic: `تذكرة ضد شرطي عسكري | صاحب التذكرة: ${interaction.user.tag}`,
+      permissionOverwrites
     });
 
-    /* ─── إرسال الإمبيد ─── */
     const embed = embeds.ticketEmbed(client, ticketData);
     const buttons = embeds.ticketClaimButtons();
 
     await newChannel.send({ embeds: [embed], components: [buttons] });
 
-    /* ─── حفظ ─── */
     await firebase.saveTicket(ticketId, {
       ...ticketData,
       channelId: newChannel.id,
       status: 'open'
     });
 
-    /* ─── لوق ─── */
     await logger.logTicketCreated(client, {
       ticketId,
       ticketType: 'mp',
@@ -1407,7 +1459,10 @@ async function handleTicketMPModal(interaction, client) {
 
   } catch (err) {
     console.error('[TicketMP]', err);
-    await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
+    await safeReply(interaction, {
+      content: `❌ ${err.message}`,
+      ephemeral: true
+    });
   }
 }
 
@@ -1419,13 +1474,24 @@ async function handleTicketClaim(interaction, client) {
   await safeDefer(interaction);
 
   try {
-    /* ─── استخراج ticketId من اسم الروم ─── */
+    // ✅ استخراج الـ ticketId بشكل موثوق
     const channelName = interaction.channel.name;
-    const ticketId = channelName.replace(/^(MP_|M_)/, '');
+    // الآن channelName = MP_1234 أو M_1234 (بدون تكرار)
+    const ticketId = channelName;
 
-    const ticket = await firebase.getTicket(ticketId);
+    let ticket = await firebase.getTicket(ticketId);
+
+    // ✅ fallback: جرب البحث بالبادئة
     if (!ticket) {
-      return safeReply(interaction, { content: '❌ التذكرة غير موجودة', ephemeral: true });
+      const cleanId = channelName.replace(/^(MP_|M_)/, '');
+      ticket = await firebase.getTicket(cleanId) || await firebase.getTicket(`MP_${cleanId}`) || await firebase.getTicket(`M_${cleanId}`);
+    }
+
+    if (!ticket) {
+      return safeReply(interaction, {
+        content: '❌ التذكرة غير موجودة في قاعدة البيانات',
+        ephemeral: true
+      });
     }
 
     if (ticket.claimedBy) {
@@ -1435,32 +1501,29 @@ async function handleTicketClaim(interaction, client) {
       });
     }
 
-    /* ─── تحديث الصلاحيات ─── */
+    // تحديث الصلاحيات (تأكيد)
     await interaction.channel.permissionOverwrites.edit(ticket.creatorDiscordId, {
       ViewChannel: true,
       SendMessages: true,
       ReadMessageHistory: true
-    });
+    }).catch(() => {});
 
-    /* ─── تحديث التذكرة في Firebase ─── */
+    // تحديث Firebase
     await firebase.updateTicket(ticketId, {
       claimedBy: interaction.user.id,
       claimedAt: Date.now()
     });
 
-    /* ─── تحديث الرسالة ─── */
+    // تحديث الرسالة
     const newButtons = embeds.ticketManageButtons();
+    await interaction.message.edit({ components: [newButtons] }).catch(() => {});
 
-    await interaction.message.edit({
-      components: [newButtons]
-    }).catch(() => {});
-
-    /* ─── إشعار ─── */
+    // إشعار
     await interaction.channel.send({
       content: `🛡️ تم استلام التذكرة من قبل ${interaction.user}`
     });
 
-    /* ─── DM لصاحب التذكرة ─── */
+    // DM لصاحب التذكرة
     try {
       const user = await client.users.fetch(ticket.creatorDiscordId).catch(() => null);
       if (user) {
@@ -1474,7 +1537,6 @@ async function handleTicketClaim(interaction, client) {
       }
     } catch {}
 
-    /* ─── لوق ─── */
     await logger.logTicketClaimed(client, {
       ticketId,
       by: interaction.user.id,
