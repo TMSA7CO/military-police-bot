@@ -238,14 +238,33 @@ async function handleApplicationAccept(interaction, client, appId) {
     /* ═══════════════════════════════════════════════════
      *  2. إعطاء الرتبة + تغيير الاسم
      *  ═══════════════════════════════════════════════════ */
-    await member.roles.add(CONFIG.ROLES.MP_TRAINEE).catch(err => {
-      console.error('[Accept] فشل إعطاء الرتبة:', err.message);
-    });
+    /* ═══════════════════════════════════════════════════
+     *  إعطاء الرتبة — مع تسجيل تفاصيل الخطأ
+     *  ═══════════════════════════════════════════════════ */
+    try {
+      await member.roles.add(CONFIG.ROLES.MP_TRAINEE);
+      console.log(`[Accept] ✅ تم إعطاء رتبة Trainee لـ ${member.user.tag}`);
+    } catch (roleErr) {
+      console.error(`[Accept] ❌ فشل إعطاء الرتبة:`);
+      console.error(`   Error: ${roleErr.message}`);
+      console.error(`   Code: ${roleErr.code}`);
+      console.error(`   Bot Highest Role: ${guild.members.me.roles.highest.name} (position: ${guild.members.me.roles.highest.position})`);
+      console.error(`   Target Role: ${CONFIG.ROLES.MP_TRAINEE}`);
+    }
 
-    await member.setNickname(addResult.fullName).catch(err => {
-      console.warn('[Accept] فشل تغيير الاسم:', err.message);
-    });
-
+    /* ═══════════════════════════════════════════════════
+     *  تغيير الاسم — مع تسجيل تفاصيل الخطأ
+     *  ═══════════════════════════════════════════════════ */
+    try {
+      await member.setNickname(addResult.fullName);
+      console.log(`[Accept] ✅ تم تغيير الاسم إلى ${addResult.fullName}`);
+    } catch (nickErr) {
+      console.error(`[Accept] ❌ فشل تغيير الاسم:`);
+      console.error(`   Error: ${nickErr.message}`);
+      console.error(`   Code: ${nickErr.code}`);
+      console.error(`   Bot Highest Position: ${guild.members.me.roles.highest.position}`);
+      console.error(`   Member Highest Position: ${member.roles.highest.position}`);
+    }
     /* ═══════════════════════════════════════════════════
      *  3. إصدار الشهادة
      *  ═══════════════════════════════════════════════════ */
@@ -342,8 +361,15 @@ async function handleApplicationReject(interaction, client, appId) {
     const member = await guild.members.fetch(application.discordId).catch(() => null);
 
     /* ─── إعطاء رتبة مرفوض ─── */
+    let roleAdded = false;
     if (member) {
-      await member.roles.add(CONFIG.ROLES.REJECTED).catch(() => {});
+      try {
+        await member.roles.add(CONFIG.ROLES.REJECTED);
+        roleAdded = true;
+        console.log(`[Reject] ✅ تم إعطاء رتبة REJECTED لـ ${member.user.tag}`);
+      } catch (roleErr) {
+        console.error(`[Reject] ❌ فشل إعطاء الرتبة:`, roleErr.message);
+      }
 
       /* ─── DM الرفض ─── */
       try {
@@ -354,18 +380,36 @@ async function handleApplicationReject(interaction, client, appId) {
       }
     }
 
-    /* ─── حذف التقديم ─── */
-    await firebase.deleteApplication(appId);
+    /* ─── تحديث حالة التقديم في Firebase (بدون حذف) ─── */
+    await firebase.updateApplication(appId, {
+      status: 'rejected',
+      rejectedBy: interaction.user.id,
+      rejectedAt: Date.now()
+    });
 
-    /* ─── تحديث الرسالة ─── */
+    /* ─── تحديث الرسالة: نضيف زر "إزالة الرفض" ─── */
     const newEmbed = EmbedBuilder.from(interaction.message.embeds[0])
       .setColor(CONFIG.COLORS.DANGER)
       .setTitle('❌ تم رفض التقديم')
       .setFooter({ text: `تم الرفض بواسطة ${interaction.user.tag}` });
 
+    /* ─── إضافة زر "إزالة الرفض" لو الرتبة أُعطيت ─── */
+    const components = [];
+    if (roleAdded) {
+      components.push(
+        new ActionRowBuilder().addComponents(
+          new ButtonBuilder()
+            .setCustomId(`app_remove_reject_${appId}`)
+            .setLabel('إزالة الرفض')
+            .setEmoji('🔄')
+            .setStyle(ButtonStyle.Secondary)
+        )
+      );
+    }
+
     await interaction.message.edit({
       embeds: [newEmbed],
-      components: []
+      components: components
     }).catch(() => {});
 
     /* ─── لوق ─── */
@@ -377,12 +421,125 @@ async function handleApplicationReject(interaction, client, appId) {
     }).catch(() => {});
 
     await safeReply(interaction, {
-      content: `❌ تم رفض تقديم **${application.name}**`,
+      content: roleAdded
+        ? `❌ تم رفض **${application.name}**\n🔄 يمكنك إزالة الرفض من الزر الجديد في الرسالة`
+        : `⚠️ تم تحديث الحالة لكن فشل إعطاء الرتبة — راجع صلاحيات البوت`,
       ephemeral: true
     });
 
   } catch (err) {
     console.error('[Reject]', err);
+    await safeReply(interaction, {
+      content: `❌ حدث خطأ: ${err.message}`,
+      ephemeral: true
+    });
+  }
+}
+/* ═══════════════════════════════════════════════════════════
+ *  إزالة الرفض — يسمح للمرفوض بالتقديم مرة أخرى
+ *  ═══════════════════════════════════════════════════════════ */
+async function handleApplicationRemoveReject(interaction, client, appId) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
+    return safeReply(interaction, {
+      content: '❌ ليس لديك صلاحية لهذا الإجراء',
+      ephemeral: true
+    });
+  }
+
+  await safeDefer(interaction);
+
+  try {
+    const application = await firebase.getApplication(appId);
+    if (!application) {
+      return safeReply(interaction, {
+        content: '❌ التقديم غير موجود',
+        ephemeral: true
+      });
+    }
+
+    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
+    const member = await guild.members.fetch(application.discordId).catch(() => null);
+
+    /* ─── إزالة رتبة REJECTED ─── */
+    let roleRemoved = false;
+    if (member) {
+      try {
+        await member.roles.remove(CONFIG.ROLES.REJECTED);
+        roleRemoved = true;
+        console.log(`[RemoveReject] ✅ تم إزالة رتبة REJECTED من ${member.user.tag}`);
+      } catch (roleErr) {
+        console.error(`[RemoveReject] ❌ فشل إزالة الرتبة:`, roleErr.message);
+        return safeReply(interaction, {
+          content: `❌ فشل إزالة الرتبة — ${roleErr.message}\n💡 تأكد أن رتبة البوت أعلى من رتبة REJECTED.`,
+          ephemeral: true
+        });
+      }
+
+      /* ─── DM للشخص ─── */
+      try {
+        const embed = new EmbedBuilder()
+          .setColor(CONFIG.COLORS.SUCCESS)
+          .setAuthor({
+            name: 'وزارة الدفاع الأمريكي',
+            iconURL: client.user.displayAvatarURL()
+          })
+          .setTitle('✅ تم إزالة الرفض عنك')
+          .setDescription(
+            'تم إزالة الرفض عنك من قبل الإدارة.\n\n' +
+            '━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
+            '🔄 **يمكنك الآن التقديم على الشرطة العسكرية مرة أخرى**'
+          )
+          .addFields({
+            name: '📝 رابط التقديم',
+            value: 'https://military-police-website.onrender.com/apply',
+            inline: false
+          })
+          .setFooter({
+            text: CONFIG.TEXT.FOOTER,
+            iconURL: client.user.displayAvatarURL()
+          })
+          .setTimestamp();
+
+        await member.send({ embeds: [embed] }).catch(() => {});
+      } catch (dmErr) {
+        console.warn('[RemoveReject] فشل إرسال DM:', dmErr.message);
+      }
+    }
+
+    /* ─── حذف التقديم من Firebase ─── */
+    await firebase.deleteApplication(appId);
+
+    /* ─── تحديث الرسالة ─── */
+    const finalEmbed = EmbedBuilder.from(interaction.message.embeds[0])
+      .setColor(CONFIG.COLORS.SUCCESS)
+      .setTitle('🔄 تم إزالة الرفض')
+      .setFooter({ text: `بواسطة ${interaction.user.tag}` });
+
+    await interaction.message.edit({
+      embeds: [finalEmbed],
+      components: []
+    }).catch(() => {});
+
+    /* ─── لوق ─── */
+    await logger.sendLog(client, 'application_rejected', {
+      description: `🔄 تم إزالة الرفض`,
+      fields: [
+        { name: '👤 العضو', value: application.name || '—', inline: true },
+        { name: '🆔 الآيدي', value: `<@${application.discordId}>`, inline: true },
+        { name: '👤 بواسطة', value: interaction.user.tag, inline: true }
+      ],
+      userId: interaction.user.id
+    }).catch(() => {});
+
+    await safeReply(interaction, {
+      content: roleRemoved
+        ? `✅ تم إزالة الرفض — يمكن لـ **${application.name}** التقديم الآن`
+        : `⚠️ لم يتمكن البوت من إزالة الرتبة`,
+      ephemeral: true
+    });
+
+  } catch (err) {
+    console.error('[RemoveReject]', err);
     await safeReply(interaction, {
       content: `❌ حدث خطأ: ${err.message}`,
       ephemeral: true
@@ -2338,6 +2495,7 @@ module.exports = {
       if (interaction.isButton()) {
         const id = interaction.customId;
 
+
         /* ─── Support Bot Stop (جديد) ─── */
         if (id.startsWith('support_stop_')) {
           const mod = require('../commands/support-bot.js');
@@ -2354,7 +2512,11 @@ module.exports = {
           const mod = require('../commands/monitor.js');
           return mod.handleStopAll(interaction, client, id.replace('monitor_stop_', ''));
         }
-
+        /* ─── إزالة الرفض (جديد) ─── */
+        if (id.startsWith('app_remove_reject_')) {
+          return handleApplicationRemoveReject(interaction, client, id.replace('app_remove_reject_', ''));
+        }
+        
         /* ─── التوظيف ─── */
         if (id === 'recruitment_open') return handleRecruitmentOpen(interaction, client);
         if (id === 'recruitment_close') return handleRecruitmentClose(interaction, client);
