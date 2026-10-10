@@ -19,7 +19,7 @@
   "license": "MIT",
   "dependencies": {
     "discord.js": "^14.16.3",
-    "firebase": "^10.13.0",
+    "firebase": "^13.0.0",
     "dotenv": "^16.4.5",
     "axios": "^1.7.7",
     "libsodium-wrappers": "^0.7.15",
