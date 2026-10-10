@@ -5,6 +5,7 @@
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
+    "start-monitor": "node index-monitor.js",
     "dev": "nodemon index.js"
   },
   "keywords": [

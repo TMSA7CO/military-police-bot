@@ -102,15 +102,27 @@ async function handleSupportBotJoin(client, newState, oldState) {
 
   /* ─── إرسال إشعار ─── */
   try {
-    const notifyChannel = await client.channels.fetch(supportChannelId).catch(() => null);
-    if (!notifyChannel) return;
+    /* ─── ✅ البحث عن قناة نصية: SUPPORT_NOTIFY أو SUPPORT_WAITING ─── */
+    let notifyChannelId = CONFIG.CHANNELS.SUPPORT_NOTIFY;
+    let notifyChannel = notifyChannelId
+      ? await client.channels.fetch(notifyChannelId).catch(() => null)
+      : null;
 
-    /* ─── إيجاد قناة الإشعار (يمكن استخدام نفس القناة أو قناة منفصلة) ─── */
-    const notifyTextChannel = notifyChannel.isTextBased()
-      ? notifyChannel
-      : await client.channels.fetch(CONFIG.CHANNELS.SUPPORT_WAITING).catch(() => null);
+    /* ─── لو ما فيه SUPPORT_NOTIFY، استخدم SUPPORT_WAITING لو كان نصياً ─── */
+    if (!notifyChannel || !notifyChannel.isTextBased()) {
+      const fallback = await client.channels.fetch(supportChannelId).catch(() => null);
+      if (fallback && fallback.isTextBased()) {
+        notifyChannel = fallback;
+      } else {
+        /* ─── آخر حل: استخدم قناة اللوقات ─── */
+        notifyChannel = await client.channels.fetch(CONFIG.CHANNELS.LOGS).catch(() => null);
+      }
+    }
 
-    if (!notifyTextChannel) return;
+    if (!notifyChannel || !notifyChannel.isTextBased()) {
+      console.warn('[Support] ⚠️ لا توجد قناة نصية للإشعار');
+      return;
+    }
 
     /* ─── إمبيد الإشعار ─── */
     const embed = embeds.supportUserJoined(client, {
@@ -125,10 +137,20 @@ async function handleSupportBotJoin(client, newState, oldState) {
       CONFIG.ROLES.MP_TRAINEE
     ].map(r => `<@&${r}>`).join(' ');
 
-    await notifyTextChannel.send({
+    const sentMsg = await notifyChannel.send({
       content: `${mentionRoles} 🔔 شخص في الانتظار`,
       embeds: [embed]
-    }).catch(err => console.error('[Support] فشل الإرسال:', err.message));
+    }).catch(err => {
+      console.error('[Support] فشل الإرسال:', err.message);
+      return null;
+    });
+
+    /* ─── حذف الإشعار بعد 30 ثانية لو الشخص خرج ─── */
+    if (sentMsg) {
+      setTimeout(() => {
+        sentMsg.delete().catch(() => {});
+      }, 60000);
+    }
 
     /* ─── لوق ─── */
     await logger.sendLog(client, 'support_user_joined', {

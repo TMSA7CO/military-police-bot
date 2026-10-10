@@ -104,6 +104,100 @@ function generateTicketId(prefix) {
 function generateReportId() {
   return `RPT_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`;
 }
+/* ═══════════════════════════════════════════════════════════
+ *              نظام هرمية الرتب — Rank Hierarchy
+ *  ═══════════════════════════════════════════════════════════ */
+
+const RANK_ORDER = [
+  CONFIG.ROLES.MP_TRAINEE,           // 0
+  CONFIG.ROLES.MP_OFFICER,           // 1
+  CONFIG.ROLES.ASSISTANT_COMMANDER,  // 2
+  CONFIG.ROLES.DEPUTY_COMMANDER,     // 3
+  CONFIG.ROLES.COMMANDER             // 4
+];
+
+const COMMANDER_POS = 4;
+
+function getActorRankPos(member) {
+  if (!member || !member.roles) return -1;
+  for (let i = RANK_ORDER.length - 1; i >= 0; i--) {
+    if (member.roles.cache.has(RANK_ORDER[i])) return i;
+  }
+  return -1;
+}
+
+function getTargetRankPos(roleId) {
+  return RANK_ORDER.indexOf(roleId);
+}
+
+function getRankLabel(pos) {
+  const labels = {
+    0: 'متدرب',
+    1: 'ضابط',
+    2: 'مساعد',
+    3: 'نائب',
+    4: 'قائد'
+  };
+  return labels[pos] || 'غير معروف';
+}
+
+/**
+ * فحص هرمية الرتب
+ */
+function canActOnTarget(actor, targetData, actionType = 'general') {
+  const actorPos = getActorRankPos(actor);
+  const targetPos = getTargetRankPos(targetData.roleId);
+
+  if (actorPos < 0) {
+    return { allowed: false, reason: 'ليس لديك رتبة عسكرية' };
+  }
+  if (targetPos < 0) {
+    return { allowed: false, reason: 'الهدف ليس لديه رتبة عسكرية' };
+  }
+
+  const isSelf = actor.id === targetData.discordId;
+  const isCommander = actorPos === COMMANDER_POS;
+
+  /* ═══ قاعدة 1: على النفس ═══ */
+  if (isSelf) {
+    if (actionType === 'add_member') {
+      return { allowed: false, reason: 'لا يمكنك إضافة نفسك' };
+    }
+    if (!isCommander) {
+      return {
+        allowed: false,
+        reason: 'لا يمكنك تنفيذ هذا الإجراء على نفسك — القائد فقط يستطيع'
+      };
+    }
+    return { allowed: true };
+  }
+
+  /* ═══ قاعدة 2: على نفس الرتبة أو أعلى ═══ */
+  if (targetPos >= actorPos) {
+    return {
+      allowed: false,
+      reason: `لا يمكنك تنفيذ أي إجراء على ${getRankLabel(targetPos)} أو أعلى`
+    };
+  }
+
+  /* ═══ قاعدة 3: صلاحيات كل إجراء ═══ */
+  const minPos = {
+    points_add: 2,
+    points_deduct: 2,
+    terminate: 2,
+    change_name: 2,
+    add_member: 2
+  };
+
+  if (minPos[actionType] !== undefined && actorPos < minPos[actionType]) {
+    return {
+      allowed: false,
+      reason: 'هذا الإجراء متاح للقائد ونائب القائد والمساعد فقط'
+    };
+  }
+
+  return { allowed: true };
+}
 
 function isStaff(member, permissionKey) {
   const allowedRoles = CONFIG.PERMISSIONS[permissionKey] || [];
@@ -1576,14 +1670,16 @@ async function handleTicketClaim(interaction, client) {
       claimedAt: Date.now()
     });
 
-    // تحديث الرسالة
+    // تحديث الرسالة — الأزرار صارت مصفوفة (2 صفوف)
     const newButtons = embeds.ticketManageButtons();
-    await interaction.message.edit({ components: [newButtons] }).catch(() => {});
+    await interaction.message.edit({ components: newButtons }).catch(() => {});
 
-    // إشعار
+    // إشعار يختفي بعد 8 ثواني
     await interaction.channel.send({
       content: `🛡️ تم استلام التذكرة من قبل ${interaction.user}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     // DM لصاحب التذكرة
     try {
@@ -1662,10 +1758,12 @@ async function handleTicketLeave(interaction, client) {
       await message.edit({ components: [claimButtons] }).catch(() => {});
     }
 
-    /* ─── إشعار ─── */
+    /* ─── إشعار يختفي بعد 8 ثواني ─── */
     await interaction.channel.send({
       content: `🚪 تم ترك التذكرة من قبل ${interaction.user}\n<@&${CONFIG.ROLES.MP_OFFICER}> — التذكرة متاحة للاستلام`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, { content: '✅ تم ترك التذكرة', ephemeral: true });
 
@@ -1713,7 +1811,9 @@ async function handleTicketAddMemberSelect(interaction, client) {
 
     await interaction.channel.send({
       content: `➕ تم إضافة: ${mentions}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, {
       content: `✅ تم إضافة ${selectedUsers.length} عضو`,
@@ -1775,7 +1875,9 @@ async function handleTicketRemoveMemberSelect(interaction, client) {
 
     await interaction.channel.send({
       content: `➖ تم إزالة: ${mentions}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, {
       content: `✅ تم إزالة ${selectedUsers.length} عضو`,
@@ -1979,6 +2081,7 @@ async function handlePanelAddMemberSelect(interaction, client) {
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(1);
+  /* ملاحظة: الفحص يصير لاحقاً بناءً على رتبتك */
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
@@ -2012,6 +2115,16 @@ async function handlePanelAddMemberModal(interaction, client) {
     const roleId = roleMap[roleNum];
     if (!roleId) {
       return safeReply(interaction, { content: '❌ رقم الرتبة غير صحيح', ephemeral: true });
+    }
+
+    /* ─── ✅ فحص هرمية الرتب ─── */
+    const check5 = canActOnTarget(
+      interaction.member,
+      { discordId: userId, roleId },
+      'add_member'
+    );
+    if (!check5.allowed) {
+      return safeReply(interaction, { content: `❌ ${check5.reason}`, ephemeral: true });
     }
 
     /* ─── إضافة العضو ─── */
@@ -2147,6 +2260,15 @@ async function handlePanelAddPointsModal(interaction, client) {
     const reasonCheck = CONFIG.validateReason(reason);
     if (!reasonCheck.valid) {
       return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
+    }
+    /* ─── ✅ فحص هرمية الرتب ─── */
+    const targetForCheck = await firebase.getMember(userId);
+    if (!targetForCheck) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+    }
+    const check1 = canActOnTarget(interaction.member, targetForCheck, 'points_add');
+    if (!check1.allowed) {
+      return safeReply(interaction, { content: `❌ ${check1.reason}`, ephemeral: true });
     }
 
     /* ─── إضافة ─── */
@@ -2284,6 +2406,15 @@ async function handlePanelDeductPointsModal(interaction, client) {
     if (!reasonCheck.valid) {
       return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
     }
+    /* ─── ✅ فحص هرمية الرتب ─── */
+    const targetForCheck = await firebase.getMember(userId);
+    if (!targetForCheck) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+    }
+    const check2 = canActOnTarget(interaction.member, targetForCheck, 'points_deduct');
+    if (!check2.allowed) {
+      return safeReply(interaction, { content: `❌ ${check2.reason}`, ephemeral: true });
+    }
 
     const result = await firebase.removePoints(userId, pointsCheck.value, reasonCheck.value, interaction.user.id);
 
@@ -2398,6 +2529,12 @@ async function handlePanelChangeNameModal(interaction, client) {
 
     const member = await firebase.getMember(userId);
     if (!member) return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+
+    /* ─── ✅ فحص هرمية الرتب ─── */
+    const check3 = canActOnTarget(interaction.member, member, 'change_name');
+    if (!check3.allowed) {
+      return safeReply(interaction, { content: `❌ ${check3.reason}`, ephemeral: true });
+    }
 
     const oldName = member.name;
 
@@ -2529,6 +2666,12 @@ async function handlePanelTerminateModal(interaction, client) {
 
     const member = await firebase.getMember(userId);
     if (!member) return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+
+    /* ─── ✅ فحص هرمية الرتب ─── */
+    const check4 = canActOnTarget(interaction.member, member, 'terminate');
+    if (!check4.allowed) {
+      return safeReply(interaction, { content: `❌ ${check4.reason}`, ephemeral: true });
+    }
 
     /* ─── 1. إبطال الشهادات ─── */
     const certResult = await firebase.invalidateAllCertificates(userId, 'termination');
