@@ -894,7 +894,6 @@ async function generateInvalidatedCertificate(data) {
   const canvas = createCanvas(CERT.WIDTH, CERT.HEIGHT);
   const ctx = canvas.getContext('2d');
 
-  // خلفية داكنة حمراء
   const bgGrad = ctx.createLinearGradient(0, 0, CERT.WIDTH, CERT.HEIGHT);
   bgGrad.addColorStop(0, '#1a0505');
   bgGrad.addColorStop(0.5, '#2a0808');
@@ -902,7 +901,6 @@ async function generateInvalidatedCertificate(data) {
   ctx.fillStyle = bgGrad;
   ctx.fillRect(0, 0, CERT.WIDTH, CERT.HEIGHT);
 
-  // إطار أحمر سميك
   drawRoundedRect(ctx, 20, 20, CERT.WIDTH - 40, CERT.HEIGHT - 40, 20);
   ctx.strokeStyle = '#ef4444';
   ctx.lineWidth = 6;
@@ -913,7 +911,6 @@ async function generateInvalidatedCertificate(data) {
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // خطوط مائلة كبيرة X
   ctx.strokeStyle = 'rgba(239, 68, 68, 0.25)';
   ctx.lineWidth = 12;
   ctx.beginPath();
@@ -925,9 +922,7 @@ async function generateInvalidatedCertificate(data) {
   ctx.lineTo(80, CERT.HEIGHT - 80);
   ctx.stroke();
 
-  // نصوص
   ctx.textAlign = 'center';
-
   ctx.font = '900 56px "Cairo", sans-serif';
   ctx.fillStyle = '#ef4444';
   ctx.fillText('❌ شهادة ملغاة ❌', CERT.WIDTH / 2, 180);
@@ -936,15 +931,6 @@ async function generateInvalidatedCertificate(data) {
   ctx.fillStyle = '#991b1b';
   ctx.fillText('INVALIDATED CERTIFICATE', CERT.WIDTH / 2, 225);
 
-  // خط فاصل
-  ctx.strokeStyle = '#7f1d1d';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(200, 260);
-  ctx.lineTo(CERT.WIDTH - 200, 260);
-  ctx.stroke();
-
-  // اسم
   ctx.font = '400 16px "Cairo", sans-serif';
   ctx.fillStyle = '#fca5a5';
   ctx.fillText('تم إبطال شهادة', CERT.WIDTH / 2, 320);
@@ -953,45 +939,29 @@ async function generateInvalidatedCertificate(data) {
   ctx.fillStyle = '#fee2e2';
   ctx.fillText(name, CERT.WIDTH / 2, 380);
 
-  // رقم
   ctx.font = '700 24px "Orbitron", "Cairo", sans-serif';
   ctx.fillStyle = '#fca5a5';
   ctx.fillText(`ID: ${militaryId}`, CERT.WIDTH / 2, 435);
 
-  // السبب
   ctx.font = '600 18px "Cairo", sans-serif';
   ctx.fillStyle = '#f87171';
-  const reasonText = reason === 'termination' ? 'ترميج من السلك' :
-                     reason === 'manual' ? 'إزالة يدوية' : reason;
+  const reasonText = reason === 'termination' ? 'ترميج من السلك' : reason;
   ctx.fillText(`السبب: ${reasonText}`, CERT.WIDTH / 2, 490);
 
-  // رقم الشهادة
   ctx.font = '600 12px "Orbitron", "Cairo", sans-serif';
   ctx.fillStyle = '#7f1d1d';
   ctx.fillText(`Certificate No: ${certificateNumber}`, CERT.WIDTH / 2, CERT.HEIGHT - 60);
 
-  ctx.font = '700 11px "Orbitron", "Cairo", sans-serif';
-  ctx.fillStyle = '#991b1b';
-  ctx.fillText('MILITARY POLICE • INVALIDATED', CERT.WIDTH / 2, CERT.HEIGHT - 30);
-
   return canvas.toBuffer('image/png');
 }
-
-/* ═══════════════════════════════════════════════════════════
- *              إرسال DM إبطال الشهادة
- *  ═══════════════════════════════════════════════════════════ */
 
 async function sendInvalidationDM(client, userId, data) {
   try {
     const user = await client.users.fetch(userId).catch(() => null);
-    if (!user) {
-      console.warn('[sendInvalidationDM] المستخدم غير موجود:', userId);
-      return null;
-    }
+    if (!user) return null;
 
     const certNumber = generateCertificateNumber(data.militaryId);
 
-    // ✅ توليد صورة الشهادة المشطوبة
     const imageBuffer = await generateInvalidatedCertificate({
       name: data.name,
       militaryId: data.militaryId,
@@ -1029,7 +999,6 @@ async function sendInvalidationDM(client, userId, data) {
       .setTimestamp(new Date());
 
     return await user.send({ embeds: [embed], files: [attachment] });
-
   } catch (err) {
     console.error('[sendInvalidationDM]', err.message);
     return null;
