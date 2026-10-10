@@ -578,12 +578,18 @@ function controlPanel(client) {
 /**
  * اللوحة المتزامنة الرئيسية
  */
+// ═══════════════════════════════════════════════════════════
+// استبدل دالة synchronizedPanel الموجودة بهذه
+// ═══════════════════════════════════════════════════════════
+
+/* ═══════════════════════════════════════════════════════════
+ *  استبدل دالة synchronizedPanel الموجودة بهذه بالكامل
+ *  ═══════════════════════════════════════════════════════════ */
+
 function synchronizedPanel(client, members) {
-  /* ─── حساب الإحصائيات ─── */
   const totalMembers = members.length;
   const totalPoints = members.reduce((sum, m) => sum + (m.points || 0), 0);
 
-  /* ─── بناء القائمة ─── */
   let memberList = '';
   if (members.length === 0) {
     memberList = '*لا يوجد أعضاء مسجلين حالياً*';
@@ -594,13 +600,10 @@ function synchronizedPanel(client, members) {
       const name = member.name || 'Unknown';
       const points = member.points || 0;
       const roleShort = getRoleShortName(member.roleId);
-
       memberList += `${emoji} **${id}** | ${name} | ${roleShort} | ⭐ **${points}**\n`;
     });
-
-    /* ─── قص القائمة لو طويلة ─── */
-    if (memberList.length > 4000) {
-      memberList = memberList.substring(0, 3900) + '\n*... (قائمة مختصرة)*';
+    if (memberList.length > 3800) {
+      memberList = memberList.substring(0, 3700) + '\n*... (قائمة مختصرة)*';
     }
   }
 
@@ -619,14 +622,12 @@ function synchronizedPanel(client, members) {
       '━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
       '**📋 قائمة الأعضاء:**'
     )
-    .addFields({
-      name: '​',
-      value: memberList
-    })
+    .addFields({ name: '\u200b', value: memberList })
     .setFooter(getFooter(client))
     .setTimestamp(now());
 
-  const buttons = new ActionRowBuilder().addComponents(
+  // ✅ إصلاح حرج: صفين بدل صف واحد (5 + 1)
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('panel_add_member')
       .setLabel('إضافة عضو')
@@ -651,15 +652,18 @@ function synchronizedPanel(client, members) {
       .setCustomId('panel_terminate')
       .setLabel('ترميج عضو')
       .setEmoji('🗑️')
-      .setStyle(ButtonStyle.Danger),
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  const row2 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('panel_refresh')
-      .setLabel('تحديث')
+      .setLabel('تحديث اللوحة')
       .setEmoji('🔄')
       .setStyle(ButtonStyle.Secondary)
   );
 
-  return { embeds: [embed], components: [buttons] };
+  return { embeds: [embed], components: [row1, row2] };
 }
 
 /**
