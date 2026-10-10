@@ -424,6 +424,7 @@ async function handleChannelSelect(interaction, client) {
         try { connection.destroy(); } catch {}
       }
     });
+    
 
     /* ═══════════════════════════════════════════════
      *  12. إشعار النجاح
@@ -607,6 +608,8 @@ async function handleStopButton(interaction, client, channelId) {
     }
   }
 }
+
+
 
 /* ═══════════════════════════════════════════════════════════
  *                    التصدير

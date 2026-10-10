@@ -313,7 +313,14 @@ async function sendCertificateDM(client, userId, data) {
     return await user.send({ embeds: [embed], files: [attachment] });
 
   } catch (err) {
-    console.error('[sendCertificateDM] خطأ:', err.message);
+    // ✅ إصلاح: لا نسجل خطأ صارخ لو الخاص مغلق
+    if (err.message && err.message.includes('no mutual guilds')) {
+      console.warn('[sendCertificateDM] ⚠️ لا يوجد خاص متبادل مع المستخدم — تم تخطي DM');
+    } else if (err.code === 50007) {
+      console.warn('[sendCertificateDM] ⚠️ المستخدم مغلق الخاص — تم تخطي DM');
+    } else {
+      console.error('[sendCertificateDM] خطأ:', err.message);
+    }
     return null;
   }
 }
@@ -1039,8 +1046,6 @@ async function sendInvalidationDM(client, userId, data) {
 module.exports = {
   generateCertificate,
   generateCertificateNumber,
-  generateInvalidatedCertificate,
-  sendInvalidationDM,
   sendCertificateDM,
   sendCertificateToChannel,
   CERT,
@@ -1055,5 +1060,9 @@ module.exports = {
 
   promoteToLeadership,
   appointNewCommander,
-  promoteDeputyToCommander
+  promoteDeputyToCommander,
+
+  // ✅ تأكد من وجود هذه
+  sendInvalidationDM,
+  generateInvalidatedCertificate
 };

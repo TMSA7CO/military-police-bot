@@ -266,7 +266,8 @@ async function reorderMilitaryIds() {
       members.push({ discordId: child.key, ...child.val() });
     });
 
-    const regularMembers = members.filter(m => !CONFIG.isCommandId(m.militaryId));
+    // ✅ التصفية بـ roleId (وليس militaryId)
+    const regularMembers = members.filter(m => !CONFIG.isCommandRole(m.roleId));
     regularMembers.sort((a, b) => (a.joinedAt || 0) - (b.joinedAt || 0));
 
     const changes = [];
