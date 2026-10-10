@@ -75,15 +75,12 @@ module.exports = {
       const maxSessions = CONFIG.MONITOR.MAX_SESSIONS || 10;
       const options = [];
 
-      const emojiMap = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣', '🔟']
-      .map(e => e); // نفس الشيء لكن تأكد من أنه مصفوفة flat
-
       for (let i = 1; i <= maxSessions; i++) {
         options.push({
           label: `${i} ${i === 1 ? 'مراقب' : 'مراقبات'}`,
           description: `تشغيل ${i} ${i === 1 ? 'مراقب' : 'مراقبات'} في ${i === 1 ? 'قناة' : 'قنوات'} مختلفة`,
           value: `${i}`,
-          emoji: emojiMap[i - 1]
+          emoji: i === 1 ? '👁️' : i <= 3 ? '👁️‍🗨️' : '🔍'
         });
       }
 

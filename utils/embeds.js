@@ -241,10 +241,6 @@ function recruitmentPanel(client, isOpen) {
       '**التوظيف مغلق حالياً**\n\n' +
       'يرجى متابعة السيرفر للإعلان عن فتح التوظيف قريباً.';
 
-  /* ✅ رابط التقديم من CONFIG */
-  const applyUrl = CONFIG.TEXT.APPLY_URL || 'https://military-police-website.onrender.com/apply';
-  const discordUrl = CONFIG.TEXT.INVITE || 'https://discord.gg/nUv3zrG5rZ';
-
   const embed = new EmbedBuilder()
     .setColor(isOpen ? CONFIG.COLORS.SUCCESS : CONFIG.COLORS.DANGER)
     .setAuthor({
@@ -255,14 +251,8 @@ function recruitmentPanel(client, isOpen) {
     .setDescription(description)
     .addFields(
       { name: '📊 الحالة', value: statusText, inline: false },
-      {
-        name: '📝 رابط التقديم',
-        value: isOpen
-          ? `[🔗 تقديم الآن](${applyUrl})`
-          : `[🔗 الموقع الرسمي](${applyUrl})`,
-        inline: true
-      },
-      { name: '💬 الديسكورد', value: `[💬 سيرفر الديسكورد](${discordUrl})`, inline: true }
+      { name: '📝 رابط التقديم', value: `[تقديم الآن](${CONFIG.TEXT.INVITE})`, inline: true },
+      { name: '💬 الديسكورد', value: `[سيرفر الديسكورد](${CONFIG.TEXT.INVITE})`, inline: true }
     )
     .setFooter(getFooter(client))
     .setTimestamp(now());
@@ -392,7 +382,7 @@ function ticketClaimButtons() {
  * أزرار إدارة التذكرة (بعد الاستلام)
  */
 function ticketManageButtons() {
-  const row1 = new ActionRowBuilder().addComponents(
+  return new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('ticket_add_member')
       .setLabel('إضافة عضو')
@@ -414,16 +404,6 @@ function ticketManageButtons() {
       .setEmoji('🚪')
       .setStyle(ButtonStyle.Secondary)
   );
-
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('ticket_close')
-      .setLabel('إغلاق وحذف التذكرة')
-      .setEmoji('🔒')
-      .setStyle(ButtonStyle.Danger)
-  );
-
-  return [row1, row2];
 }
 
 /**
@@ -497,7 +477,9 @@ function reportLogEmbed(client, reportData) {
       { name: '🕒 الوقت', value: reportData.time || '—', inline: true },
       { name: '👥 الفريق / القطاع', value: reportData.team || 'غير محدد', inline: true },
       { name: '━━━━━━━━━━━━━━━━━━━', value: '**الإجراءات:**', inline: false },
-    { name: '📝 الإجراءات المنفذة', value: String(reportData.actions || '—').substring(0, 1024), inline: false }
+      { name: '⚔️ استخدام القوة', value: reportData.useOfForce || 'لم يُحدد', inline: false },
+      { name: '⚠️ حصل حوادث', value: reportData.incidents || 'لم يُحدد', inline: false },
+      { name: '🔍 أعراض جانبية', value: reportData.sideEffects || 'لم يُحدد', inline: false }
     )
     .setFooter({
       text: `Report ID: ${reportData.id} | By: ${reportData.name}`,
@@ -596,14 +578,12 @@ function controlPanel(client) {
 /**
  * اللوحة المتزامنة الرئيسية
  */
-/* ═══════════════════════════════════════════════════════════
- *  استبدل دالة synchronizedPanel الموجودة بهذه بالكامل
- *  ═══════════════════════════════════════════════════════════ */
-
 function synchronizedPanel(client, members) {
+  /* ─── حساب الإحصائيات ─── */
   const totalMembers = members.length;
   const totalPoints = members.reduce((sum, m) => sum + (m.points || 0), 0);
 
+  /* ─── بناء القائمة ─── */
   let memberList = '';
   if (members.length === 0) {
     memberList = '*لا يوجد أعضاء مسجلين حالياً*';
@@ -614,10 +594,13 @@ function synchronizedPanel(client, members) {
       const name = member.name || 'Unknown';
       const points = member.points || 0;
       const roleShort = getRoleShortName(member.roleId);
+
       memberList += `${emoji} **${id}** | ${name} | ${roleShort} | ⭐ **${points}**\n`;
     });
-    if (memberList.length > 3800) {
-      memberList = memberList.substring(0, 3700) + '\n*... (قائمة مختصرة)*';
+
+    /* ─── قص القائمة لو طويلة ─── */
+    if (memberList.length > 4000) {
+      memberList = memberList.substring(0, 3900) + '\n*... (قائمة مختصرة)*';
     }
   }
 
@@ -636,49 +619,49 @@ function synchronizedPanel(client, members) {
       '━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
       '**📋 قائمة الأعضاء:**'
     )
-    .addFields({ name: '\u200b', value: memberList })
+    .addFields({
+      name: '​',
+      value: memberList
+    })
     .setFooter(getFooter(client))
     .setTimestamp(now());
 
-  // ✅ إصلاح حرج: صفين بدل صف واحد (5 + 1)
-  const row1 = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId('panel_add_member')
-    .setLabel('إضافة عضو')
-    .setEmoji('➕')
-    .setStyle(ButtonStyle.Success),
-  new ButtonBuilder()
-    .setCustomId('panel_add_points')
-    .setLabel('إضافة نقاط')
-    .setEmoji('⭐')
-    .setStyle(ButtonStyle.Primary),
-  new ButtonBuilder()
-    .setCustomId('panel_deduct_points')
-    .setLabel('خصم نقاط')
-    .setEmoji('➖')
-    .setStyle(ButtonStyle.Secondary),
-  new ButtonBuilder()
-    .setCustomId('panel_change_name')
-    .setLabel('تغيير اسم')
-    .setEmoji('✏️')
-    .setStyle(ButtonStyle.Primary),
-  new ButtonBuilder()
-    .setCustomId('panel_terminate')
-    .setLabel('ترميج عضو')
-    .setEmoji('🗑️')
-    .setStyle(ButtonStyle.Danger)
-);
+  const buttons = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('panel_add_member')
+      .setLabel('إضافة عضو')
+      .setEmoji('➕')
+      .setStyle(ButtonStyle.Success),
+    new ButtonBuilder()
+      .setCustomId('panel_add_points')
+      .setLabel('إضافة نقاط')
+      .setEmoji('⭐')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('panel_deduct_points')
+      .setLabel('خصم نقاط')
+      .setEmoji('➖')
+      .setStyle(ButtonStyle.Secondary),
+    new ButtonBuilder()
+      .setCustomId('panel_change_name')
+      .setLabel('تغيير اسم')
+      .setEmoji('✏️')
+      .setStyle(ButtonStyle.Primary),
+    new ButtonBuilder()
+      .setCustomId('panel_terminate')
+      .setLabel('ترميج عضو')
+      .setEmoji('🗑️')
+      .setStyle(ButtonStyle.Danger),
+    new ButtonBuilder()
+      .setCustomId('panel_refresh')
+      .setLabel('تحديث')
+      .setEmoji('🔄')
+      .setStyle(ButtonStyle.Secondary)
+  );
 
-const row2 = new ActionRowBuilder().addComponents(
-  new ButtonBuilder()
-    .setCustomId('panel_refresh')
-    .setLabel('تحديث اللوحة')
-    .setEmoji('🔄')
-    .setStyle(ButtonStyle.Secondary)
-);
-
-return { embeds: [embed], components: [row1, row2] };
+  return { embeds: [embed], components: [buttons] };
 }
+
 /**
  * اسم الرتبة المختصر
  */

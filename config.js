@@ -53,8 +53,7 @@ const CONFIG = {
 
     /* الدعم والمراقبة */
     SUPPORT_WAITING: process.env.CHANNEL_SUPPORT_WAITING || '1557579207662637166',
-    SUPPORT_NOTIFY: process.env.CHANNEL_SUPPORT_NOTIFY || null,
-    SUPPORT_NOTIFY: process.env.CHANNEL_SUPPORT_NOTIFY || '1558329870445187202',
+
     /* السجلات */
     LOGS: process.env.CHANNEL_LOGS || '1556477465751199874',
 
@@ -119,30 +118,23 @@ const CONFIG = {
       '1556461913087676466'
     ],
     TERMINATION: [
-  '1556461913087676466',  // Commander
-  '1556462097527734302',  // Deputy
-  '1556462201324445837'   // Assistant
-],
-DEDUCT_POINTS: [
-  '1556461913087676466',  // Commander
-  '1556462097527734302',  // Deputy
-  '1556462201324445837'   // Assistant
-],
-ADD_POINTS: [
-  '1556461913087676466',  // Commander
-  '1556462097527734302',  // Deputy
-  '1556462201324445837'   // Assistant
-],
-CHANGE_NAME: [
-  '1556461913087676466',  // Commander
-  '1556462097527734302',  // Deputy
-  '1556462201324445837'   // Assistant
-],
-ADD_MEMBER: [
-  '1556461913087676466',  // Commander
-  '1556462097527734302',  // Deputy
-  '1556462201324445837'   // Assistant
-],
+      '1556461913087676466'
+    ],
+    DEDUCT_POINTS: [
+      '1556461913087676466'
+    ],
+    ADD_POINTS: [
+      '1556461913087676466',
+      '1556462097527734302'
+    ],
+    CHANGE_NAME: [
+      '1556461913087676466',
+      '1556462097527734302'
+    ],
+    ADD_MEMBER: [
+      '1556461913087676466',
+      '1556462097527734302'
+    ],
     CONTROL_PANEL_ACCESS: [
       '1556461913087676466',
       '1556462097527734302'
@@ -312,8 +304,7 @@ ADD_MEMBER: [
     MINISTRY: 'MINISTRY OF DEFENSE',
     MINISTRY_AR: 'وزارة الدفاع الأمريكي',
     FOOTER: 'Military Police — Ministry of Defense',
-    INVITE: process.env.DISCORD_INVITE || 'https://discord.gg/nUv3zrG5rZ',
-    APPLY_URL: process.env.APPLY_URL || 'https://military-police-website.onrender.com/apply'
+    INVITE: process.env.DISCORD_INVITE || 'https://discord.gg/nUv3zrG5rZ'
   },
 
   /* ═══════════════════════════════════════════════════════
