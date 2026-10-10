@@ -199,81 +199,7 @@ async function handleSupportBotLeave(client, newState, oldState) {
  */
 async function startRecording(client, channel, sessionId, monitorId) {
   try {
-    console.log(`[Monitor] بدء التسجيل في ${channel.name}`);
-
-    // ✅ التحقق من الاتصال الموجود
-    let connection = getVoiceConnection(channel.guild.id);
-    if (connection) {
-      try { connection.destroy(); } catch {}
-      await new Promise(r => setTimeout(r, 500));
-    }
-
-    // ✅ الاتصال بالقناة — unmute + undeaf
-    connection = joinVoiceChannel({
-      channelId: channel.id,
-      guildId: channel.guild.id,
-      adapterCreator: channel.guild.voiceAdapterCreator,
-      selfDeaf: false,  // ✅ لا يعمل deafen
-      selfMute: true    // ✅ يعمل mute (للتسجيل)
-    });
-
-    // ✅ انتظار الاتصال
-    try {
-      await entersState(connection, VoiceConnectionStatus.Ready, 30000);
-      console.log(`[Monitor] ✅ متصل بـ ${channel.name}`);
-    } catch (err) {
-      console.error(`[Monitor] فشل الاتصال:`, err.message);
-      connection.destroy();
-      return { success: false, error: 'فشل الاتصال بالقناة' };
-    }
-
-    // ✅ معالجة الانقطاع — إعادة الاتصال
-    connection.on(VoiceConnectionStatus.Disconnected, async () => {
-      console.log(`[Monitor] انقطع الاتصال بـ ${channel.name}`);
-      try {
-        await Promise.race([
-          entersState(connection, VoiceConnectionStatus.Signalling, 5000),
-          entersState(connection, VoiceConnectionStatus.Connecting, 5000)
-        ]);
-        console.log(`[Monitor] إعادة الاتصال...`);
-      } catch {
-        // فشلت إعادة الاتصال — إيقاف
-        const monitor = activeMonitors.get(channel.id);
-        if (monitor) {
-          try { connection.destroy(); } catch {}
-        }
-      }
-    });
-
-    // ✅ معالجة الأخطاء
-    connection.on('error', (err) => {
-      console.error(`[Monitor] خطأ في الاتصال:`, err.message);
-    });
-
-    // ... باقي كود التسجيل كما هو ...
-
-    return { success: true, sessionId };
-
-  } catch (err) {
-    console.error('[startRecording]', err);
-    return { success: false, error: err.message };
-  }
-}
-
-/**
- * ✅ التحقق من وجود البوت في القناة — وإعادة الاتصال إذا خرج
- */
-async function ensureBotInChannel(client, channelId) {
-  const channel = await client.channels.fetch(channelId).catch(() => null);
-  if (!channel) return false;
-
-  const botMember = channel.members.get(client.user.id);
-  if (botMember) return true;
-
-  // ✅ البوت خارج القناة — إعادة الاتصال
-  console.log(`[ensureBot] البوت ليس في ${channel.name} — إعادة الاتصال`);
-
-  try {
+    /* ─── الانضمام للقناة ─── */
     const connection = joinVoiceChannel({
       channelId: channel.id,
       guildId: channel.guild.id,
@@ -282,11 +208,114 @@ async function ensureBotInChannel(client, channelId) {
       selfMute: true
     });
 
-    await entersState(connection, VoiceConnectionStatus.Ready, 30000);
-    return true;
+    /* ─── ملف التسجيل ─── */
+    const fileName = `recording_${channel.id}_${sessionId}_${Date.now()}.pcm`;
+    const filePath = join(RECORDINGS_DIR, fileName);
+    const audioStream = createWriteStream(filePath);
+
+    const monitorData = {
+      sessionId,
+      monitorId,
+      channelId: channel.id,
+      channelName: channel.name,
+      connection,
+      recording: true,
+      users: new Set(),
+      startTime: Date.now(),
+      audioFile: filePath,
+      audioStream,
+      player: null
+    };
+
+    activeMonitors.set(channel.id, monitorData);
+
+    /* ─── معالجة الأخطاء ─── */
+    connection.on('error', (err) => {
+      console.error(`[Monitor] خطأ في الاتصال (${channel.name}):`, err.message);
+    });
+
+    connection.on(VoiceConnectionStatus.Disconnected, async () => {
+      try {
+        await Promise.race([
+          entersState(connection, VoiceConnectionStatus.Signalling, 5000),
+          entersState(connection, VoiceConnectionStatus.Connecting, 5000)
+        ]);
+      } catch {
+        stopRecording(client, channel.id, 'disconnected');
+      }
+    });
+
+    /* ─── استقبال الصوت من المستخدمين ─── */
+    const receiver = connection.receiver;
+
+    receiver.speaking.on('start', (userId) => {
+      const monitor = activeMonitors.get(channel.id);
+      if (!monitor || !monitor.recording) return;
+
+      const member = channel.guild.members.cache.get(userId);
+      if (!member || member.user.bot) return;
+
+      /* ─── تسجيل اسم المتحدث ─── */
+      monitor.users.add(userId);
+
+      /* ─── إنشاء Audio Stream ─── */
+      const audioStream = receiver.subscribe(userId, {
+        end: {
+          behavior: EndBehaviorType.AfterSilence,
+          duration: 1000
+        }
+      });
+
+      /* ─── تحويل Opus إلى PCM ─── */
+      const opusDecoder = new prism.opus.Decoder({
+        frameSize: 960,
+        channels: 2,
+        rate: 48000
+      });
+
+      const pcmStream = audioStream.pipe(opusDecoder);
+
+      /* ─── كتابة في ملف التسجيل ─── */
+      pcmStream.on('data', (chunk) => {
+        try {
+          monitor.audioStream.write(chunk);
+        } catch (err) {
+          console.error('[Monitor] فشل الكتابة:', err.message);
+        }
+      });
+
+      pcmStream.on('error', (err) => {
+        // تجاهل الأخطاء المتوقعة (مثل قطع المستخدم)
+      });
+
+      /* ─── حفظ وقت التحدث ─── */
+      member._lastSpokeAt = Date.now();
+    });
+
+    /* ─── لوق بدء المراقبة ─── */
+    await logger.sendLog(client, 'monitor_started', {
+      description: `بدء مراقبة القناة **${channel.name}**`,
+      fields: [
+        { name: '🎤 القناة', value: channel.name, inline: true },
+        { name: '🆔 الجلسة', value: `\`${sessionId}\``, inline: true },
+        { name: '👤 المُراقب', value: `<@${monitorId}>`, inline: true }
+      ],
+      userId: monitorId
+    }).catch(() => {});
+
+    /* ─── حفظ في Firebase ─── */
+    await firebase.saveMonitorSession(sessionId, {
+      channelId: channel.id,
+      channelName: channel.name,
+      monitorId,
+      guildId: channel.guild.id
+    }).catch(() => {});
+
+    return { success: true, sessionId };
+
   } catch (err) {
-    console.error(`[ensureBot] فشل:`, err.message);
-    return false;
+    console.error('[startRecording]', err.message);
+    return { success: false, error: err.message };
   }
 }
 

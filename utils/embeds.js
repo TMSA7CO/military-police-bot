@@ -477,7 +477,9 @@ function reportLogEmbed(client, reportData) {
       { name: '🕒 الوقت', value: reportData.time || '—', inline: true },
       { name: '👥 الفريق / القطاع', value: reportData.team || 'غير محدد', inline: true },
       { name: '━━━━━━━━━━━━━━━━━━━', value: '**الإجراءات:**', inline: false },
-      { name: '📝 الإجراءات المنفذة', value: String(reportData.actions || '—').substring(0, 1024), inline: false }
+      { name: '⚔️ استخدام القوة', value: reportData.useOfForce || 'لم يُحدد', inline: false },
+      { name: '⚠️ حصل حوادث', value: reportData.incidents || 'لم يُحدد', inline: false },
+      { name: '🔍 أعراض جانبية', value: reportData.sideEffects || 'لم يُحدد', inline: false }
     )
     .setFooter({
       text: `Report ID: ${reportData.id} | By: ${reportData.name}`,
