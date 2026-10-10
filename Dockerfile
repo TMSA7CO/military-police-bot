@@ -16,5 +16,6 @@ RUN npm install --legacy-peer-deps --omit=dev
 COPY . .
 
 EXPOSE 8000
+EXPOSE 8001
 
-CMD ["node", "index.js"]
+CMD ["sh", "-c", "node index.js & node index-monitor.js & wait"]

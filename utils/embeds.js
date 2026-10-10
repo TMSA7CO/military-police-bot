@@ -241,6 +241,10 @@ function recruitmentPanel(client, isOpen) {
       '**التوظيف مغلق حالياً**\n\n' +
       'يرجى متابعة السيرفر للإعلان عن فتح التوظيف قريباً.';
 
+  /* ✅ رابط التقديم من CONFIG */
+  const applyUrl = CONFIG.TEXT.APPLY_URL || 'https://military-police-website.onrender.com/apply';
+  const discordUrl = CONFIG.TEXT.INVITE || 'https://discord.gg/nUv3zrG5rZ';
+
   const embed = new EmbedBuilder()
     .setColor(isOpen ? CONFIG.COLORS.SUCCESS : CONFIG.COLORS.DANGER)
     .setAuthor({
@@ -251,8 +255,14 @@ function recruitmentPanel(client, isOpen) {
     .setDescription(description)
     .addFields(
       { name: '📊 الحالة', value: statusText, inline: false },
-      { name: '📝 رابط التقديم', value: `[تقديم الآن](${CONFIG.TEXT.INVITE})`, inline: true },
-      { name: '💬 الديسكورد', value: `[سيرفر الديسكورد](${CONFIG.TEXT.INVITE})`, inline: true }
+      {
+        name: '📝 رابط التقديم',
+        value: isOpen
+          ? `[🔗 تقديم الآن](${applyUrl})`
+          : `[🔗 الموقع الرسمي](${applyUrl})`,
+        inline: true
+      },
+      { name: '💬 الديسكورد', value: `[💬 سيرفر الديسكورد](${discordUrl})`, inline: true }
     )
     .setFooter(getFooter(client))
     .setTimestamp(now());
@@ -382,7 +392,7 @@ function ticketClaimButtons() {
  * أزرار إدارة التذكرة (بعد الاستلام)
  */
 function ticketManageButtons() {
-  return new ActionRowBuilder().addComponents(
+  const row1 = new ActionRowBuilder().addComponents(
     new ButtonBuilder()
       .setCustomId('ticket_add_member')
       .setLabel('إضافة عضو')
@@ -404,6 +414,16 @@ function ticketManageButtons() {
       .setEmoji('🚪')
       .setStyle(ButtonStyle.Secondary)
   );
+
+  const row2 = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId('ticket_close')
+      .setLabel('إغلاق وحذف التذكرة')
+      .setEmoji('🔒')
+      .setStyle(ButtonStyle.Danger)
+  );
+
+  return [row1, row2];
 }
 
 /**

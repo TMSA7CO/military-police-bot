@@ -76,6 +76,12 @@ async function generateTTSFile(text, outputPath) {
       const psCommand = `
         Add-Type -AssemblyName System.Speech;
         $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer;
+        $synth.Rate = -1;
+        $synth.Volume = 100;
+        try {
+          $arVoice = $synth.GetInstalledVoices() | Where-Object { $_.VoiceInfo.Culture.Name -like 'ar*' } | Select-Object -First 1;
+          if ($arVoice) { $synth.SelectVoice($arVoice.VoiceInfo.Name); }
+        } catch {}
         $synth.SetOutputToWaveFile("${outputPath.replace(/\\/g, '\\\\')}");
         $synth.Speak("${escapedText}");
         $synth.Dispose();
@@ -85,19 +91,26 @@ async function generateTTSFile(text, outputPath) {
         timeout: 30000
       });
 
-      /* تحويل WAV → MP3 */
+      /* تحويل WAV → MP3 بجودة عالية */
       const mp3Path = outputPath.replace('.wav', '.mp3');
-      await execAsync(`"${ffmpegPath}" -y -i "${outputPath}" -b:a 128k "${mp3Path}"`, {
-        timeout: 30000
-      });
+      await execAsync(
+        `"${ffmpegPath}" -y -i "${outputPath}" -ar 48000 -ac 2 -b:a 192k -af "highpass=f=80,lowpass=f=12000,volume=1.5" "${mp3Path}"`,
+        { timeout: 30000 }
+      );
 
       return mp3Path;
     }
 
     /* ─── على Linux (Koyeb) — استخدام espeak ─── */
     const mp3Path = outputPath.replace('.wav', '.mp3');
-    await execAsync(`espeak-ng -v ar -w "${outputPath}" "${text}"`, { timeout: 30000 });
-    await execAsync(`"${ffmpegPath}" -y -i "${outputPath}" -b:a 128k "${mp3Path}"`, { timeout: 30000 });
+    await execAsync(
+      `espeak-ng -v ar -s 140 -p 50 -a 180 -w "${outputPath}" "${text}"`,
+      { timeout: 30000 }
+    );
+    await execAsync(
+      `"${ffmpegPath}" -y -i "${outputPath}" -ar 48000 -ac 2 -b:a 192k -af "highpass=f=80,lowpass=f=12000,volume=1.5" "${mp3Path}"`,
+      { timeout: 30000 }
+    );
 
     return mp3Path;
 
@@ -132,10 +145,10 @@ async function ensureAudioFile() {
 
   console.warn('[Support-Bot] ⚠️ فشل توليد الملف الصوتي — سيتم استخدام ملف بديل');
 
-  /* ─── ملف بديل: نغمة تنبيه بسيطة ─── */
+  /* ─── ملف بديل: نغمة تنبيه ─── */
   try {
     await execAsync(
-      `"${ffmpegPath}" -y -f lavfi -i "sine=frequency=440:duration=1" -b:a 128k "${audioPath}"`,
+      `"${ffmpegPath}" -y -f lavfi -i "sine=frequency=800:duration=1.5" -ar 48000 -ac 2 -b:a 192k "${audioPath}"`,
       { timeout: 15000 }
     );
     return audioPath;
@@ -357,6 +370,8 @@ async function handleChannelSelect(interaction, client) {
     /* ═══════════════════════════════════════════════
      *  9. تشغيل الرسالة الصوتية بشكل متكرر
      *  ═══════════════════════════════════════════════ */
+    let playInterval = null;
+
     const playAudio = () => {
       try {
         if (!audioPath || !existsSync(audioPath)) {
@@ -383,7 +398,7 @@ async function handleChannelSelect(interaction, client) {
         if (activeSupportSessions.has(channelId)) {
           playAudio();
         }
-      }, 5000);
+      }, 10000);
     });
 
     player.on('error', (err) => {
@@ -401,7 +416,8 @@ async function handleChannelSelect(interaction, client) {
       channelName: channel.name,
       connection,
       player,
-      audioPath
+      audioPath,
+      interval: playInterval
     };
 
     activeSupportSessions.set(channelId, sessionData);

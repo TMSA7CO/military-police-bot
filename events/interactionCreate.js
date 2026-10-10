@@ -1576,14 +1576,16 @@ async function handleTicketClaim(interaction, client) {
       claimedAt: Date.now()
     });
 
-    // تحديث الرسالة
+    // تحديث الرسالة — الأزرار صارت مصفوفة (2 صفوف)
     const newButtons = embeds.ticketManageButtons();
-    await interaction.message.edit({ components: [newButtons] }).catch(() => {});
+    await interaction.message.edit({ components: newButtons }).catch(() => {});
 
-    // إشعار
+    // إشعار يختفي بعد 8 ثواني
     await interaction.channel.send({
       content: `🛡️ تم استلام التذكرة من قبل ${interaction.user}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     // DM لصاحب التذكرة
     try {
@@ -1662,10 +1664,12 @@ async function handleTicketLeave(interaction, client) {
       await message.edit({ components: [claimButtons] }).catch(() => {});
     }
 
-    /* ─── إشعار ─── */
+    /* ─── إشعار يختفي بعد 8 ثواني ─── */
     await interaction.channel.send({
       content: `🚪 تم ترك التذكرة من قبل ${interaction.user}\n<@&${CONFIG.ROLES.MP_OFFICER}> — التذكرة متاحة للاستلام`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, { content: '✅ تم ترك التذكرة', ephemeral: true });
 
@@ -1713,7 +1717,9 @@ async function handleTicketAddMemberSelect(interaction, client) {
 
     await interaction.channel.send({
       content: `➕ تم إضافة: ${mentions}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, {
       content: `✅ تم إضافة ${selectedUsers.length} عضو`,
@@ -1775,7 +1781,9 @@ async function handleTicketRemoveMemberSelect(interaction, client) {
 
     await interaction.channel.send({
       content: `➖ تم إزالة: ${mentions}`
-    });
+    }).then(msg => {
+      setTimeout(() => msg.delete().catch(() => {}), 8000);
+    }).catch(() => {});
 
     await safeReply(interaction, {
       content: `✅ تم إزالة ${selectedUsers.length} عضو`,
