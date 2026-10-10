@@ -477,9 +477,7 @@ function reportLogEmbed(client, reportData) {
       { name: '🕒 الوقت', value: reportData.time || '—', inline: true },
       { name: '👥 الفريق / القطاع', value: reportData.team || 'غير محدد', inline: true },
       { name: '━━━━━━━━━━━━━━━━━━━', value: '**الإجراءات:**', inline: false },
-      { name: '⚔️ استخدام القوة', value: reportData.useOfForce || 'لم يُحدد', inline: false },
-      { name: '⚠️ حصل حوادث', value: reportData.incidents || 'لم يُحدد', inline: false },
-      { name: '🔍 أعراض جانبية', value: reportData.sideEffects || 'لم يُحدد', inline: false }
+    { name: '📝 الإجراءات المنفذة', value: String(reportData.actions || '—').substring(0, 1024), inline: false }
     )
     .setFooter({
       text: `Report ID: ${reportData.id} | By: ${reportData.name}`,
@@ -624,42 +622,42 @@ function synchronizedPanel(client, members) {
 
   // ✅ إصلاح حرج: صفين بدل صف واحد (5 + 1)
   const row1 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('panel_add_member')
-      .setLabel('إضافة عضو')
-      .setEmoji('➕')
-      .setStyle(ButtonStyle.Success),
-    new ButtonBuilder()
-      .setCustomId('panel_add_points')
-      .setLabel('إضافة نقاط')
-      .setEmoji('⭐')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('panel_deduct_points')
-      .setLabel('خصم نقاط')
-      .setEmoji('➖')
-      .setStyle(ButtonStyle.Secondary),
-    new ButtonBuilder()
-      .setCustomId('panel_change_name')
-      .setLabel('تغيير اسم')
-      .setEmoji('✏️')
-      .setStyle(ButtonStyle.Primary),
-    new ButtonBuilder()
-      .setCustomId('panel_terminate')
-      .setLabel('ترميج عضو')
-      .setEmoji('🗑️')
-      .setStyle(ButtonStyle.Danger)
-  );
+  new ButtonBuilder()
+    .setCustomId('panel_add_member')
+    .setLabel('إضافة عضو')
+    .setEmoji('➕')
+    .setStyle(ButtonStyle.Success),
+  new ButtonBuilder()
+    .setCustomId('panel_add_points')
+    .setLabel('إضافة نقاط')
+    .setEmoji('⭐')
+    .setStyle(ButtonStyle.Primary),
+  new ButtonBuilder()
+    .setCustomId('panel_deduct_points')
+    .setLabel('خصم نقاط')
+    .setEmoji('➖')
+    .setStyle(ButtonStyle.Secondary),
+  new ButtonBuilder()
+    .setCustomId('panel_change_name')
+    .setLabel('تغيير اسم')
+    .setEmoji('✏️')
+    .setStyle(ButtonStyle.Primary),
+  new ButtonBuilder()
+    .setCustomId('panel_terminate')
+    .setLabel('ترميج عضو')
+    .setEmoji('🗑️')
+    .setStyle(ButtonStyle.Danger)
+);
 
-  const row2 = new ActionRowBuilder().addComponents(
-    new ButtonBuilder()
-      .setCustomId('panel_refresh')
-      .setLabel('تحديث اللوحة')
-      .setEmoji('🔄')
-      .setStyle(ButtonStyle.Secondary)
-  );
+const row2 = new ActionRowBuilder().addComponents(
+  new ButtonBuilder()
+    .setCustomId('panel_refresh')
+    .setLabel('تحديث اللوحة')
+    .setEmoji('🔄')
+    .setStyle(ButtonStyle.Secondary)
+);
 
-  return { embeds: [embed], components: [row1, row2] };
+return { embeds: [embed], components: [row1, row2] };
 }
 /**
  * اسم الرتبة المختصر

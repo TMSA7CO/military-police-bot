@@ -31,6 +31,14 @@ const { join } = require('path');
 const { PassThrough } = require('stream');
 const prism = require('prism-media');
 
+/* ═══════════════════════════════════════════════════════════
+ *  ✅ التعديل الوحيد: نقل هذه الأسطر من داخل الدالة إلى هنا
+ *  ═══════════════════════════════════════════════════════════ */
+const ffmpegPath = require('ffmpeg-static');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
+
 const CONFIG = require('../config');
 const firebase = require('../firebase');
 const logger = require('../utils/logger');
@@ -375,15 +383,13 @@ async function stopRecording(client, channelId, reason = 'manual') {
       return { success: true, message: 'لا يوجد صوت مسجل' };
     }
 
-    /* ─── تحويل PCM إلى MP3 ─── */
+    /* ═══════════════════════════════════════════════════════
+     *  ✅ التعديل: استخدام ffmpegPath و execAsync من فوق
+     *  ═══════════════════════════════════════════════════════ */
     const mp3Path = monitor.audioFile.replace('.pcm', '.mp3');
-    const ffmpeg = require('ffmpeg-static');
-    const { exec } = require('child_process');
-    const { promisify } = require('util');
-    const execAsync = promisify(exec);
 
     try {
-      await execAsync(`"${ffmpeg}" -f s16le -ar 48000 -ac 2 -i "${monitor.audioFile}" -b:a 128k "${mp3Path}"`);
+      await execAsync(`"${ffmpegPath}" -f s16le -ar 48000 -ac 2 -i "${monitor.audioFile}" -b:a 128k "${mp3Path}"`);
     } catch (ffmpegErr) {
       console.error('[stopRecording] ffmpeg فشل:', ffmpegErr.message);
       // نستخدم الملف الخام كبديل

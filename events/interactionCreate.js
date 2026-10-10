@@ -1240,7 +1240,7 @@ async function handleTicketArmy(interaction, client) {
 }
 
 async function handleTicketArmyModal(interaction, client) {
-  await safeDefer(interaction, false);
+  await safeDefer(interaction); // ✅ ephemeral: true (الافتراضي)
 
   try {
     const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
@@ -1250,9 +1250,9 @@ async function handleTicketArmyModal(interaction, client) {
     const targetId = interaction.fields.getTextInputValue('target_id') || 'غير محدد';
     const details = interaction.fields.getTextInputValue('details');
 
-    // ✅ إصلاح: بدون بادئة مزدوجة
-    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_ARMY); // MP_1234
-    const channelName = ticketId; // ✅ نفسها بدون تكرار
+    // ✅ lowercase من البداية
+    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_ARMY).toLowerCase();
+    const channelName = ticketId;
 
     const ticketData = {
       ticketId,
@@ -1266,22 +1266,14 @@ async function handleTicketArmyModal(interaction, client) {
       createdAt: Date.now()
     };
 
-    // ✅ إصلاح: التحقق من صلاحية قناة الأب
     let parentId = CONFIG.CHANNELS.TICKET_ARMY;
     if (parentId) {
       const parent = guild.channels.cache.get(parentId);
-      if (!parent || parent.type !== ChannelType.GuildCategory) {
-        console.warn(`[TicketArmy] parent ID ${parentId} ليس فئة — تم إلغاء parent`);
-        parentId = null;
-      }
+      if (!parent || parent.type !== ChannelType.GuildCategory) parentId = null;
     }
 
-    // ✅ إصلاح: صلاحيات محسّنة — كل الرتب العسكرية ترى التذكرة
     const permissionOverwrites = [
-      {
-        id: guild.roles.everyone.id,
-        deny: [PermissionFlagsBits.ViewChannel]
-      },
+      { id: guild.roles.everyone.id, deny: [PermissionFlagsBits.ViewChannel] },
       {
         id: interaction.user.id,
         allow: [
@@ -1303,7 +1295,6 @@ async function handleTicketArmyModal(interaction, client) {
       }
     ];
 
-    // ✅ إضافة كل الرتب العسكرية
     for (const roleId of CONFIG.ALL_RANKS) {
       permissionOverwrites.push({
         id: roleId,
@@ -1323,13 +1314,23 @@ async function handleTicketArmyModal(interaction, client) {
       permissionOverwrites
     });
 
-    // إرسال الإمبيد + الأزرار
     const embed = embeds.ticketEmbed(client, ticketData);
     const buttons = embeds.ticketClaimButtons();
 
-    await newChannel.send({ embeds: [embed], components: [buttons] });
+    // ✅ منشن الإدارة
+    const staffMentions = [
+      `<@&${CONFIG.ROLES.COMMANDER}>`,
+      `<@&${CONFIG.ROLES.DEPUTY_COMMANDER}>`,
+      `<@&${CONFIG.ROLES.ASSISTANT_COMMANDER}>`,
+      `<@&${CONFIG.ROLES.MP_OFFICER}>`
+    ].join(' ');
 
-    // حفظ
+    await newChannel.send({
+      content: `🔔 ${staffMentions}\n📩 **تذكرة جديدة** من <@${interaction.user.id}>`,
+      embeds: [embed],
+      components: [buttons]
+    });
+
     await firebase.saveTicket(ticketId, {
       ...ticketData,
       channelId: newChannel.id,
@@ -1344,21 +1345,74 @@ async function handleTicketArmyModal(interaction, client) {
       targetName
     }).catch(() => {});
 
+    // ✅ رسالة مؤقتة
     await interaction.editReply({
-      content: `✅ تم إنشاء تذكرة: <#${newChannel.id}>`
+      content: `✅ تم إنشاء تذكتك: <#${newChannel.id}>`
     });
+
+    // ✅ حذف بعد 10 ثواني
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
 
   } catch (err) {
     console.error('[TicketArmy]', err);
-    await safeReply(interaction, {
-      content: `❌ ${err.message}`,
-      ephemeral: true
-    });
+    await interaction.editReply({ content: `❌ ${err.message}` }).catch(() => {});
   }
 }
 
+/* ─── فتح Modal التذكرة ضد شرطي عسكري ─── */
+async function handleTicketMP(interaction, client) {
+  const modal = new ModalBuilder()
+    .setCustomId('ticket_mp_modal')
+    .setTitle('🎖️ شكوى ضد شرطي عسكري');
+
+  const nameInput = new TextInputBuilder()
+    .setCustomId('creator_name')
+    .setLabel('اسم شخصية مقدم الشكوى')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(100);
+
+  const idInput = new TextInputBuilder()
+    .setCustomId('creator_id')
+    .setLabel('آيدي مقدم الشكوى (في السيرفر)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(50);
+
+  const targetNameInput = new TextInputBuilder()
+    .setCustomId('target_name')
+    .setLabel('اسم الشرطي المشتكى عليه')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(true)
+    .setMaxLength(100);
+
+  const targetIdInput = new TextInputBuilder()
+    .setCustomId('target_id')
+    .setLabel('آيدي الشرطي (إن وجد)')
+    .setStyle(TextInputStyle.Short)
+    .setRequired(false)
+    .setMaxLength(50);
+
+  const detailsInput = new TextInputBuilder()
+    .setCustomId('details')
+    .setLabel('تفاصيل الشكوى + رابط الأدلة')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMaxLength(2000);
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(nameInput),
+    new ActionRowBuilder().addComponents(idInput),
+    new ActionRowBuilder().addComponents(targetNameInput),
+    new ActionRowBuilder().addComponents(targetIdInput),
+    new ActionRowBuilder().addComponents(detailsInput)
+  );
+
+  await interaction.showModal(modal);
+}
+
 async function handleTicketMPModal(interaction, client) {
-  await safeDefer(interaction, false);
+  await safeDefer(interaction);
 
   try {
     const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
@@ -1368,8 +1422,7 @@ async function handleTicketMPModal(interaction, client) {
     const targetId = interaction.fields.getTextInputValue('target_id') || 'غير محدد';
     const details = interaction.fields.getTextInputValue('details');
 
-    // ✅ إصلاح: بدون بادئة مزدوجة
-    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_MP); // M_1234
+    const ticketId = generateTicketId(CONFIG.TICKETS.PREFIX_MP).toLowerCase();
     const channelName = ticketId;
 
     const ticketData = {
@@ -1387,9 +1440,7 @@ async function handleTicketMPModal(interaction, client) {
     let parentId = CONFIG.CHANNELS.TICKET_MP;
     if (parentId) {
       const parent = guild.channels.cache.get(parentId);
-      if (!parent || parent.type !== ChannelType.GuildCategory) {
-        parentId = null;
-      }
+      if (!parent || parent.type !== ChannelType.GuildCategory) parentId = null;
     }
 
     const permissionOverwrites = [
@@ -1437,7 +1488,17 @@ async function handleTicketMPModal(interaction, client) {
     const embed = embeds.ticketEmbed(client, ticketData);
     const buttons = embeds.ticketClaimButtons();
 
-    await newChannel.send({ embeds: [embed], components: [buttons] });
+    const staffMentions = [
+      `<@&${CONFIG.ROLES.COMMANDER}>`,
+      `<@&${CONFIG.ROLES.DEPUTY_COMMANDER}>`,
+      `<@&${CONFIG.ROLES.ASSISTANT_COMMANDER}>`
+    ].join(' ');
+
+    await newChannel.send({
+      content: `🔔 ${staffMentions}\n📩 **تذكرة جديدة** (ضد شرطي عسكري) من <@${interaction.user.id}>`,
+      embeds: [embed],
+      components: [buttons]
+    });
 
     await firebase.saveTicket(ticketId, {
       ...ticketData,
@@ -1454,15 +1515,14 @@ async function handleTicketMPModal(interaction, client) {
     }).catch(() => {});
 
     await interaction.editReply({
-      content: `✅ تم إنشاء تذكرة: <#${newChannel.id}>`
+      content: `✅ تم إنشاء تذكتك: <#${newChannel.id}>`
     });
+
+    setTimeout(() => interaction.deleteReply().catch(() => {}), 10000);
 
   } catch (err) {
     console.error('[TicketMP]', err);
-    await safeReply(interaction, {
-      content: `❌ ${err.message}`,
-      ephemeral: true
-    });
+    await interaction.editReply({ content: `❌ ${err.message}` }).catch(() => {});
   }
 }
 
@@ -1484,7 +1544,9 @@ async function handleTicketClaim(interaction, client) {
     // ✅ fallback: جرب البحث بالبادئة
     if (!ticket) {
       const cleanId = channelName.replace(/^(MP_|M_)/, '');
-      ticket = await firebase.getTicket(cleanId) || await firebase.getTicket(`MP_${cleanId}`) || await firebase.getTicket(`M_${cleanId}`);
+      ticket = await firebase.getTicket(cleanId) 
+       || await firebase.getTicket(`mp_${cleanId}`)
+       || await firebase.getTicket(`m_${cleanId}`);
     }
 
     if (!ticket) {
@@ -1559,10 +1621,16 @@ async function handleTicketLeave(interaction, client) {
   await safeDefer(interaction);
 
   try {
-    const channelName = interaction.channel.name;
-    const ticketId = channelName.replace(/^(MP_|M_)/, '');
+    const channelName = interaction.channel.name.toLowerCase();
+    let ticket = await firebase.getTicket(channelName);
+    if (!ticket) {
+      const cleanId = channelName.replace(/^(mp_|m_)/, '');
+      ticket = await firebase.getTicket(cleanId)
+        || await firebase.getTicket(`mp_${cleanId}`)
+        || await firebase.getTicket(`m_${cleanId}`);
+    }
+    const ticketId = ticket?.id || channelName;
 
-    const ticket = await firebase.getTicket(ticketId);
     if (!ticket) {
       return safeReply(interaction, { content: '❌ التذكرة غير موجودة', ephemeral: true });
     }
@@ -1683,9 +1751,15 @@ async function handleTicketRemoveMemberSelect(interaction, client) {
 
   try {
     const selectedUsers = interaction.values;
-    const channelName = interaction.channel.name;
-    const ticketId = channelName.replace(/^(MP_|M_)/, '');
-    const ticket = await firebase.getTicket(ticketId);
+    const channelName = interaction.channel.name.toLowerCase();
+    let ticket = await firebase.getTicket(channelName);
+    if (!ticket) {
+      const cleanId = channelName.replace(/^(mp_|m_)/, '');
+      ticket = await firebase.getTicket(cleanId)
+        || await firebase.getTicket(`mp_${cleanId}`)
+        || await firebase.getTicket(`m_${cleanId}`);
+    }
+    const ticketId = ticket?.id || channelName;
 
     for (const userId of selectedUsers) {
       /* ─── لا يمكن إزالة صاحب التذكرة ─── */
@@ -1722,10 +1796,15 @@ async function handleTicketSummonOwner(interaction, client) {
   await safeDefer(interaction);
 
   try {
-    const channelName = interaction.channel.name;
-    const ticketId = channelName.replace(/^(MP_|M_)/, '');
-
-    const ticket = await firebase.getTicket(ticketId);
+    const channelName = interaction.channel.name.toLowerCase();
+    let ticket = await firebase.getTicket(channelName);
+    if (!ticket) {
+      const cleanId = channelName.replace(/^(mp_|m_)/, '');
+      ticket = await firebase.getTicket(cleanId)
+        || await firebase.getTicket(`mp_${cleanId}`)
+        || await firebase.getTicket(`m_${cleanId}`);
+    }
+    const ticketId = ticket?.id || channelName;
     if (!ticket) {
       return safeReply(interaction, { content: '❌ التذكرة غير موجودة', ephemeral: true });
     }
@@ -1764,10 +1843,15 @@ async function handleTicketClose(interaction, client) {
   await safeDefer(interaction);
 
   try {
-    const channelName = interaction.channel.name;
-    const ticketId = channelName.replace(/^(MP_|M_)/, '');
-
-    const ticket = await firebase.getTicket(ticketId);
+    const channelName = interaction.channel.name.toLowerCase();
+    let ticket = await firebase.getTicket(channelName);
+    if (!ticket) {
+      const cleanId = channelName.replace(/^(mp_|m_)/, '');
+      ticket = await firebase.getTicket(cleanId)
+        || await firebase.getTicket(`mp_${cleanId}`)
+        || await firebase.getTicket(`m_${cleanId}`);
+    }
+    const ticketId = ticket?.id || channelName;
     if (!ticket) {
       return safeReply(interaction, { content: '❌ التذكرة غير موجودة', ephemeral: true });
     }
@@ -1889,8 +1973,9 @@ async function handlePanelAddMemberSelect(interaction, client) {
     .setMaxLength(50);
 
   const roleInput = new TextInputBuilder()
-    .setCustomId('member_role')
-    .setLabel('الرتبة (1=Trainee, 2=Officer, 3=Assistant, 4=Deputy, 5=Commander)')
+  .setCustomId('member_role')
+  .setLabel('رقم الرتبة (1-5)')
+  .setPlaceholder('1=Trainee, 2=Officer, 3=Assistant, 4=Deputy, 5=Commander')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(1);

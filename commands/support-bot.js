@@ -357,8 +357,6 @@ async function handleChannelSelect(interaction, client) {
     /* ═══════════════════════════════════════════════
      *  9. تشغيل الرسالة الصوتية بشكل متكرر
      *  ═══════════════════════════════════════════════ */
-    let playInterval = null;
-
     const playAudio = () => {
       try {
         if (!audioPath || !existsSync(audioPath)) {
@@ -403,8 +401,7 @@ async function handleChannelSelect(interaction, client) {
       channelName: channel.name,
       connection,
       player,
-      audioPath,
-      interval: playInterval
+      audioPath
     };
 
     activeSupportSessions.set(channelId, sessionData);
