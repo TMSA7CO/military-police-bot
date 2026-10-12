@@ -58,7 +58,10 @@ const CONFIG = {
     LOGS: process.env.CHANNEL_LOGS || '1556477465751199874',
 
     /* ✨ سجل الشهادات (جديد) */
-    CERTIFICATE_LOG: process.env.CHANNEL_CERTIFICATE_LOG || '1557866857334313132'
+    CERTIFICATE_LOG: process.env.CHANNEL_CERTIFICATE_LOG || '1557866857334313132',
+
+    /* ✨ قناة الترحيب بالأعضاء الجدد (جديد) */
+    WELCOME: process.env.CHANNEL_WELCOME || '1557565252051140741'
   },
 
   /* ═══════════════════════════════════════════════════════
@@ -75,7 +78,10 @@ const CONFIG = {
     MP_TRAINEE: process.env.ROLE_MP_TRAINEE || '1557843518565777549',
 
     /* خاصة */
-    REJECTED: process.env.ROLE_REJECTED || '1556805070643925042'
+    REJECTED: process.env.ROLE_REJECTED || '1556805070643925042',
+
+    /* ✨ رتبة الدخول التلقائي (جديد) */
+    AUTO_JOIN: process.env.ROLE_AUTO_JOIN || '1556471816275624087'
   },
 
   /* ─── الرتب القيادية ─── */
@@ -102,8 +108,9 @@ const CONFIG = {
    *  ═══════════════════════════════════════════════════════ */
   PERMISSIONS: {
     PANEL_MANAGEMENT: [
-      '1556461913087676466',
-      '1556462097527734302'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // ✨ Assistant (جديد — للوحة المتزامنة)
     ],
     TICKET_STAFF: [
       '1556461913087676466',
@@ -112,39 +119,90 @@ const CONFIG = {
       '1556464397885513870'
     ],
     REPORT_MANAGEMENT: [
-      '1556461913087676466'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // Assistant
     ],
     SUPPORT_MANAGEMENT: [
-      '1556461913087676466'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // Assistant
     ],
     TERMINATION: [
-      '1556461913087676466'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // Assistant
     ],
     DEDUCT_POINTS: [
-      '1556461913087676466'
+      '1556461913087676466',
+      '1556462097527734302',
+      '1556462201324445837'
     ],
     ADD_POINTS: [
       '1556461913087676466',
-      '1556462097527734302'
+      '1556462097527734302',
+      '1556462201324445837'
     ],
     CHANGE_NAME: [
       '1556461913087676466',
-      '1556462097527734302'
+      '1556462097527734302',
+      '1556462201324445837'
     ],
     ADD_MEMBER: [
       '1556461913087676466',
-      '1556462097527734302'
+      '1556462097527734302',
+      '1556462201324445837'
     ],
     CONTROL_PANEL_ACCESS: [
       '1556461913087676466',
-      '1556462097527734302'
+      '1556462097527734302',
+      '1556462201324445837'
     ],
     LEADERSHIP_PROMOTION: [
-      '1556461913087676466'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // Assistant
     ],
     APPOINT_COMMANDER: [
-      '1556461913087676466'
+      '1556461913087676466',  // Commander
+      '1556462097527734302',  // Deputy
+      '1556462201324445837'   // Assistant
     ]
+  },
+  /* ═══════════════════════════════════════════════════════
+   *              ✨ مستويات الرتب (جديد)
+   *  ═══════════════════════════════════════════════════════ */
+  ROLE_LEVELS: {
+    '1556461913087676466': 5,  // Commander   → قائد
+    '1556462097527734302': 4,  // Deputy      → نائب
+    '1556462201324445837': 3,  // Assistant   → مساعد
+    '1556464397885513870': 2,  // Officer     → ضابط
+    '1557843518565777549': 1,  // Trainee     → متدرب
+    '1556805070643925042': 0   // Rejected    → مرفوض
+  },
+
+  LEVEL_NAMES_AR: {
+    0: 'مرفوض',
+    1: 'متدرب',
+    2: 'ضابط',
+    3: 'مساعد قائد',
+    4: 'نائب قائد',
+    5: 'قائد'
+  },
+
+  LEVEL_NAMES_EN: {
+    0: 'Rejected',
+    1: 'Trainee',
+    2: 'Officer',
+    3: 'Assistant',
+    4: 'Deputy',
+    5: 'Commander'
+  },
+
+  /* ─── ✨ حدود نص السبب (جديد) ─── */
+  REASON_LIMITS: {
+    MIN: 3,
+    MAX: 1000
   },
 
   /* ═══════════════════════════════════════════════════════
@@ -511,6 +569,88 @@ CONFIG.validateReason = function (reason) {
   }
   return { valid: true, value: reason.trim() };
 };
+
+/* ═══════════════════════════════════════════════════════════
+ *              ✨ دوال مستويات الرتب (جديد)
+ *  ═══════════════════════════════════════════════════════════ */
+
+/**
+ * جلب مستوى الرتبة
+ * 0 = مرفوض | 1-5 = رتب عسكرية
+ */
+CONFIG.getRoleLevel = function (roleId) {
+  if (!roleId) return 0;
+  return CONFIG.ROLE_LEVELS[roleId] || 0;
+};
+
+/**
+ * جلب اسم المستوى بالعربية
+ */
+CONFIG.getLevelNameArabic = function (level) {
+  return CONFIG.LEVEL_NAMES_AR[level] || 'غير معروف';
+};
+
+/**
+ * جلب اسم المستوى بالإنجليزية
+ */
+CONFIG.getLevelNameEnglish = function (level) {
+  return CONFIG.LEVEL_NAMES_EN[level] || 'Unknown';
+};
+
+/**
+ * ✅ هل يمكن للفاعل التحكم بالهدف؟
+ * القاعدة الذهبية: actorLevel > targetLevel
+ */
+CONFIG.canActOn = function (actorLevel, targetLevel) {
+  if (actorLevel === 0 || actorLevel === undefined || actorLevel === null) return false;
+  if (targetLevel === undefined || targetLevel === null) return false;
+  return actorLevel > targetLevel;
+};
+
+/**
+ * ✅ هل يمكن للفاعل تعيين شخص برتبة معينة؟
+ * نفس قاعدة canActOn — منفصلة للوضوح
+ */
+CONFIG.canAssignRole = function (actorLevel, newRoleLevel) {
+  return CONFIG.canActOn(actorLevel, newRoleLevel);
+};
+
+/**
+ * هل هذه رتبة قيادية (مستوى >= 3)؟
+ * (مساعد قائد وأعلى = له وصول للوحة المتزامنة)
+ */
+CONFIG.isLeadershipLevel = function (roleId) {
+  return CONFIG.getRoleLevel(roleId) >= 3;
+};
+
+/* ═══════════════════════════════════════════════════════════
+ *              ✨ فحص السبب (جديد)
+ *  ═══════════════════════════════════════════════════════════ */
+
+/**
+ * فحص صحة نص السبب (للوحة المتزامنة)
+ * الحد الأدنى: 3 أحرف | الحد الأعلى: 1000 حرف
+ */
+CONFIG.validateReasonText = function (reason) {
+  const clean = String(reason || '').trim();
+
+  if (clean.length < CONFIG.REASON_LIMITS.MIN) {
+    return {
+      valid: false,
+      error: `السبب قصير جداً — الحد الأدنى ${CONFIG.REASON_LIMITS.MIN} أحرف`
+    };
+  }
+
+  if (clean.length > CONFIG.REASON_LIMITS.MAX) {
+    return {
+      valid: false,
+      error: `السبب طويل جداً — الحد الأقصى ${CONFIG.REASON_LIMITS.MAX} حرف`
+    };
+  }
+
+  return { valid: true, value: clean };
+};
+
 
 /* ═══════════════════════════════════════════════════════════
  *                    التحقق من الإعدادات
