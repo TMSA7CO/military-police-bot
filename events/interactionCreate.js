@@ -1998,12 +1998,14 @@ async function handlePanelAddMemberSelect(interaction, client) {
     .setRequired(true)
     .setMaxLength(50);
 
+  // ✅ استبدله بهذا
   const roleInput = new TextInputBuilder()
     .setCustomId('member_role')
-    .setLabel('الرتبة (1=Trainee, 2=Officer, 3=Assistant, 4=Deputy, 5=Commander)')
+    .setLabel('الرتبة (1-5)')                       // ← قصير
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(1);
+    .setMaxLength(1)
+    .setPlaceholder('1=Trainee 2=Officer 3=Assistant 4=Deputy 5=Commander');
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),

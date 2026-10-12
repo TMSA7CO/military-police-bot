@@ -204,7 +204,33 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
     }
 
     const isPromotion = isHigherRole(newRole, oldRole);
+        // ✅✅✅ إعادة ترقيم الأفراد عند الترقية القيادية
+    const oldWasLeadership = CONFIG.isLeadershipRole(oldRole);
+    const newIsLeadership = CONFIG.isLeadershipRole(newRole);
 
+    if (!oldWasLeadership && newIsLeadership) {
+      console.log(`[autoUpdateRole] 🎖️ ترقية قيادية — إعادة ترقيم الأفراد`);
+
+      const reorderResult = await firebase.reorderMilitaryIds();
+
+      for (const change of reorderResult.changes) {
+        try {
+          await certificates.reissueCertificateOnReorder(
+            client,
+            change.memberData,
+            change.newId
+          );
+
+          const changedMember = await member.guild.members.fetch(change.discordId).catch(() => null);
+          if (changedMember && change.newNickname) {
+            await changedMember.setNickname(change.newNickname, 'إعادة ترقيم').catch(() => {});
+          }
+        } catch (err) {
+          console.error(`[autoUpdateRole] فشل إعادة ترقيم ${change.discordId}:`, err.message);
+        }
+      }
+    }
+    
     // ✅ إعادة إصدار الشهادة
     await certificates.reissueCertificateOnUpdate(
       client,
