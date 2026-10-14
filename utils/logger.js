@@ -66,6 +66,19 @@ const LOG_TYPES = {
   CERTIFICATE_INVALIDATED: 'certificate_invalidated',
   CERTIFICATE_LEADERSHIP_PROMOTION: 'certificate_leadership_promotion',
 
+  /* ─── أحداث السيرفر العامة (جديد) ─── */
+  MEMBER_JOINED: 'member_joined',
+  MEMBER_LEFT: 'member_left',
+
+  /* ─── أحداث السيرفر الشاملة (جديد) ─── */
+  MESSAGE_DELETED: 'message_deleted',
+  MESSAGE_UPDATED: 'message_updated',
+  CHANNEL_CREATED: 'channel_created',
+  CHANNEL_DELETED: 'channel_deleted',
+  ROLE_CREATED: 'role_created',
+  ROLE_DELETED: 'role_deleted',
+  ROLE_UPDATED: 'role_updated',
+
   /* ─── عام ─── */
   CUSTOM: 'custom'
 };
@@ -226,6 +239,46 @@ const LOG_CONFIG = {
   [LOG_TYPES.CERTIFICATE_LEADERSHIP_PROMOTION]: {
     emoji: '👑', color: CONFIG.COLORS.GOLD,
     title: 'ترقية قيادية', titleEn: 'Leadership Promotion'
+  },
+
+  /* ─── أحداث السيرفر العامة (جديد) ─── */
+  [LOG_TYPES.MEMBER_JOINED]: {
+    emoji: '👋', color: CONFIG.COLORS.SUCCESS,
+    title: 'عضو جديد', titleEn: 'Member Joined'
+  },
+  [LOG_TYPES.MEMBER_LEFT]: {
+    emoji: '🚪', color: CONFIG.COLORS.WARNING,
+    title: 'عضو غادر', titleEn: 'Member Left'
+  },
+
+  /* ─── أحداث السيرفر الشاملة (جديد) ─── */
+  [LOG_TYPES.MESSAGE_DELETED]: {
+    emoji: '🗑️', color: CONFIG.COLORS.DANGER,
+    title: 'حذف رسالة', titleEn: 'Message Deleted'
+  },
+  [LOG_TYPES.MESSAGE_UPDATED]: {
+    emoji: '✏️', color: CONFIG.COLORS.WARNING,
+    title: 'تعديل رسالة', titleEn: 'Message Updated'
+  },
+  [LOG_TYPES.CHANNEL_CREATED]: {
+    emoji: '📢', color: CONFIG.COLORS.SUCCESS,
+    title: 'إنشاء قناة', titleEn: 'Channel Created'
+  },
+  [LOG_TYPES.CHANNEL_DELETED]: {
+    emoji: '🗑️', color: CONFIG.COLORS.DANGER,
+    title: 'حذف قناة', titleEn: 'Channel Deleted'
+  },
+  [LOG_TYPES.ROLE_CREATED]: {
+    emoji: '🎭', color: CONFIG.COLORS.SUCCESS,
+    title: 'إنشاء رتبة', titleEn: 'Role Created'
+  },
+  [LOG_TYPES.ROLE_DELETED]: {
+    emoji: '🗑️', color: CONFIG.COLORS.DANGER,
+    title: 'حذف رتبة', titleEn: 'Role Deleted'
+  },
+  [LOG_TYPES.ROLE_UPDATED]: {
+    emoji: '✏️', color: CONFIG.COLORS.WARNING,
+    title: 'تعديل رتبة', titleEn: 'Role Updated'
   },
 
   /* ─── عام ─── */

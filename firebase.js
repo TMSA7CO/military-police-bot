@@ -581,7 +581,10 @@ async function getPanelLocation(panelType) {
 async function saveCertificate(discordId, certificateData) {
   try {
     const {
-      certificateNumber, militaryId, name, roleName, roleId, issuedBy
+      certificateNumber, militaryId, name, roleName, roleId, issuedBy,
+      /* ✨ جديد */
+      logMessageId, logChannelId,
+      dmMessageId, dmChannelId
     } = certificateData;
 
     if (!certificateNumber) {
@@ -598,12 +601,50 @@ async function saveCertificate(discordId, certificateData) {
       issuedBy: issuedBy || 'System',
       status: 'active',
       issuedAt: Date.now(),
-      issuedAtISO: new Date().toISOString()
+      issuedAtISO: new Date().toISOString(),
+
+      /* ✨ جديد — معرّفات الرسائل */
+      logMessageId: logMessageId || null,
+      logChannelId: logChannelId || null,
+      dmMessageId: dmMessageId || null,
+      dmChannelId: dmChannelId || null
     });
 
     return { success: true, certificateNumber };
   } catch (err) {
     console.error('[saveCertificate]', err.message);
+    return { success: false, error: err.message };
+  }
+}
+/**
+ * ✨ تحديث معرّفات رسائل الشهادة (لوق + DM)
+ * تُستخدم بعد إرسال الرسائل بنجاح
+ */
+async function updateCertificateMessageIds(discordId, certificateNumber, messageIds) {
+  try {
+    if (!discordId || !certificateNumber) {
+      return { success: false, error: 'discordId و certificateNumber مطلوبان' };
+    }
+
+    const {
+      logMessageId, logChannelId,
+      dmMessageId, dmChannelId
+    } = messageIds || {};
+
+    const updates = {
+      updatedAt: Date.now()
+    };
+
+    if (logMessageId !== undefined) updates.logMessageId = logMessageId;
+    if (logChannelId !== undefined) updates.logChannelId = logChannelId;
+    if (dmMessageId !== undefined) updates.dmMessageId = dmMessageId;
+    if (dmChannelId !== undefined) updates.dmChannelId = dmChannelId;
+
+    await update(ref(db, `certificates/${discordId}/${certificateNumber}`), updates);
+    return { success: true };
+
+  } catch (err) {
+    console.error('[updateCertificateMessageIds]', err.message);
     return { success: false, error: err.message };
   }
 }
@@ -800,6 +841,7 @@ module.exports = {
 
   /* ✨ الشهادات (جديد) */
   saveCertificate,
+  updateCertificateMessageIds,     /* ✨ جديد */
   getMemberCertificates,
   getActiveCertificates,
   invalidateCertificate,

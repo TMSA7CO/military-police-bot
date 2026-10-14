@@ -23,6 +23,10 @@ const embeds = require('../utils/embeds');
 const certificates = require('../utils/certificates');
 const { cleanChannelById } = require('../utils/cleanChannel');
 
+/* ✨ جديد — نظام الصلاحيات + الإجراءات الموحدة */
+const permissions = require('../utils/permissions');
+const memberActions = require('../utils/memberActions');
+
 /* ═══════════════════════════════════════════════════════════
  *                    حالة المؤقتة
  *  ═══════════════════════════════════════════════════════════ */
@@ -428,117 +432,6 @@ async function handleApplicationReject(interaction, client, appId) {
   }
 }
 
-/* ═══════════════════════════════════════════════════════════
- *  إزالة الرفض — يسمح للمرفوض بالتقديم مرة أخرى
- *  ═══════════════════════════════════════════════════════════ */
-async function handleApplicationRemoveReject(interaction, client, appId) {
-  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
-    return safeReply(interaction, {
-      content: '❌ ليس لديك صلاحية لهذا الإجراء',
-      ephemeral: true
-    });
-  }
-
-  await safeDefer(interaction);
-
-  try {
-    const application = await firebase.getApplication(appId);
-    if (!application) {
-      return safeReply(interaction, {
-        content: '❌ التقديم غير موجود في قاعدة البيانات',
-        ephemeral: true
-      });
-    }
-
-    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
-    const member = await guild.members.fetch(application.discordId).catch(() => null);
-
-    /* ─── إزالة رتبة REJECTED ─── */
-    let roleRemoved = false;
-    if (member) {
-      try {
-        await member.roles.remove(CONFIG.ROLES.REJECTED);
-        roleRemoved = true;
-        console.log(`[RemoveReject] ✅ تم إزالة رتبة REJECTED من ${member.user.tag}`);
-      } catch (roleErr) {
-        console.error(`[RemoveReject] ❌ فشل إزالة الرتبة:`, roleErr.message);
-        return safeReply(interaction, {
-          content: `❌ فشل إزالة رتبة الرفض — ${roleErr.message}\n💡 تأكد أن رتبة البوت أعلى من رتبة REJECTED.`,
-          ephemeral: true
-        });
-      }
-
-      /* ─── DM للشخص ─── */
-      try {
-        const embed = new EmbedBuilder()
-          .setColor(CONFIG.COLORS.SUCCESS)
-          .setAuthor({
-            name: 'وزارة الدفاع الأمريكي',
-            iconURL: client.user.displayAvatarURL()
-          })
-          .setTitle('✅ تم إزالة الرفض عنك')
-          .setDescription(
-            'تم إزالة الرفض عنك من قبل الإدارة.\n\n' +
-            '━━━━━━━━━━━━━━━━━━━━━━━━━\n' +
-            '🔄 **يمكنك الآن التقديم على الشرطة العسكرية مرة أخرى**'
-          )
-          .addFields({
-            name: '📝 رابط التقديم',
-            value: 'https://military-police-website.onrender.com/apply',
-            inline: false
-          })
-          .setFooter({
-            text: CONFIG.TEXT.FOOTER,
-            iconURL: client.user.displayAvatarURL()
-          })
-          .setTimestamp();
-
-        await member.send({ embeds: [embed] }).catch(() => {});
-      } catch (dmErr) {
-        console.warn('[RemoveReject] فشل إرسال DM:', dmErr.message);
-      }
-    }
-
-    /* ─── حذف التقديم من Firebase ─── */
-    await firebase.deleteApplication(appId);
-
-    /* ─── تحديث الرسالة ─── */
-    const finalEmbed = EmbedBuilder.from(interaction.message.embeds[0])
-      .setColor(CONFIG.COLORS.SUCCESS)
-      .setTitle('🔄 تم إزالة الرفض')
-      .setFooter({ text: `تم إزالة الرفض بواسطة ${interaction.user.tag}` });
-
-    await interaction.message.edit({
-      embeds: [finalEmbed],
-      components: []
-    }).catch(() => {});
-
-    /* ─── لوق ─── */
-    await logger.sendLog(client, 'application_rejected', {
-      description: `🔄 تم إزالة الرفض — يقدر يقدّم مرة ثانية`,
-      fields: [
-        { name: '👤 العضو', value: application.name || '—', inline: true },
-        { name: '🆔 الآيدي', value: `<@${application.discordId}>`, inline: true },
-        { name: '👤 بواسطة', value: interaction.user.tag, inline: true }
-      ],
-      userId: interaction.user.id
-    }).catch(() => {});
-
-    await safeReply(interaction, {
-      content: roleRemoved
-        ? `✅ تم إزالة الرفض — يمكن لـ **${application.name}** التقديم الآن`
-        : `⚠️ تم حذف التقديم من Firebase فقط`,
-      ephemeral: true
-    });
-
-  } catch (err) {
-    console.error('[RemoveReject]', err);
-    await safeReply(interaction, {
-      content: `❌ حدث خطأ: ${err.message}`,
-      ephemeral: true
-    });
-  }
-}
 /* ═══════════════════════════════════════════════════════════
  *  إزالة الرفض — يسمح للمرفوض بالتقديم مرة أخرى
  *  ═══════════════════════════════════════════════════════════ */
@@ -1957,10 +1850,36 @@ async function handlePanelRefresh(interaction, client) {
   await safeUpdate(interaction, payload);
 }
 
+/* ═══════════════════════════════════════════════════════════
+ *  ➕ إضافة عضو — مع فلترة الرتب + سبب
+ *  ═══════════════════════════════════════════════════════════ */
+
 async function handlePanelAddMember(interaction, client) {
-  if (!isStaff(interaction.member, 'ADD_MEMBER')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
+
+  if (!permissions.isLeadership(interaction.member)) {
+    return safeReply(interaction, {
+      content: '❌ هذه اللوحة للقيادة فقط',
+      ephemeral: true
+    });
+  }
+
+  /* ─── فلترة الرتب المسموح بها ─── */
+  const assignableRoles = permissions.filterAssignableRoles(interaction.member);
+
+  if (assignableRoles.length === 0) {
+    return safeReply(interaction, {
+      content: '❌ لا يمكنك إضافة أي رتبة (نفس مستواك أو أعلى)',
+      ephemeral: true
+    });
+  }
+
+  /* ─── عرض قائمة الرتب في embed ─── */
+  const rolesList = assignableRoles.map(r =>
+    `> \`${r.level}\` — ${r.nameAr} (${r.nameEn})`
+  ).join('\n');
 
   const select = new UserSelectMenuBuilder()
     .setCustomId('panel_add_member_select')
@@ -1971,21 +1890,56 @@ async function handlePanelAddMember(interaction, client) {
   const row = new ActionRowBuilder().addComponents(select);
 
   await safeReply(interaction, {
-    content: 'اختر العضو:',
+    content:
+      `➕ **اختر العضو لإضافته:**\n\n` +
+      `**الرتب المسموح بها لك:**\n${rolesList}\n\n` +
+      `⚠️ الشخص المرفوض (REJECTED) لا يمكن إضافته.`,
     components: [row],
     ephemeral: true
   });
 }
 
 async function handlePanelAddMemberSelect(interaction, client) {
-  if (!isStaff(interaction.member, 'ADD_MEMBER')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   const userId = interaction.values[0];
 
-  /* ─── حفظ مؤقت ─── */
+  /* ─── التحقق من السيرفر + REJECTED ─── */
+  const guild = await client.guilds.fetch(CONFIG.GUILD_ID).catch(() => null);
+  if (!guild) {
+    return safeReply(interaction, { content: '❌ السيرفر غير موجود', ephemeral: true });
+  }
+
+  const guildMember = await guild.members.fetch(userId).catch(() => null);
+  if (!guildMember) {
+    return safeReply(interaction, { content: '❌ العضو غير موجود في السيرفر', ephemeral: true });
+  }
+
+  /* ─── منع المرفوض ─── */
+  if (guildMember.roles.cache.has(CONFIG.ROLES.REJECTED)) {
+    return safeReply(interaction, {
+      content: '❌ لا يمكن إضافة شخص يحمل رتبة **REJECTED**\n> قم بإزالة الرفض أولاً',
+      ephemeral: true
+    });
+  }
+
+  /* ─── منع المسجّل مسبقاً ─── */
+  const existing = await firebase.getMember(userId);
+  if (existing) {
+    return safeReply(interaction, {
+      content: `❌ <@${userId}> مسجل بالفعل برقم \`${existing.militaryId}\``,
+      ephemeral: true
+    });
+  }
+
   tempState.set(`add_member_${interaction.user.id}`, { userId });
+
+  /* ─── بناء الخيارات المسموحة ─── */
+  const assignableRoles = permissions.filterAssignableRoles(interaction.member);
+  const allowedNums = assignableRoles.map(r => r.level).join(' / ');
+  const allowedText = assignableRoles.map(r => `${r.level}=${r.nameEn}`).join(' ');
 
   const modal = new ModalBuilder()
     .setCustomId('panel_add_member_modal')
@@ -1996,20 +1950,29 @@ async function handlePanelAddMemberSelect(interaction, client) {
     .setLabel('الاسم')
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(50);
+    .setMinLength(CONFIG.NAME.MIN_NAME_LENGTH)
+    .setMaxLength(CONFIG.NAME.MAX_NAME_LENGTH);
 
-  // ✅ استبدله بهذا
   const roleInput = new TextInputBuilder()
     .setCustomId('member_role')
-    .setLabel('الرتبة (1-5)')                       // ← قصير
+    .setLabel(`الرتبة (${allowedNums})`)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
     .setMaxLength(1)
-    .setPlaceholder('1=Trainee 2=Officer 3=Assistant 4=Deputy 5=Commander');
+    .setPlaceholder(allowedText);
+
+  const reasonInput = new TextInputBuilder()
+    .setCustomId('member_reason')
+    .setLabel('سبب الإضافة')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMinLength(CONFIG.REASON_LIMITS.MIN)
+    .setMaxLength(CONFIG.REASON_LIMITS.MAX);
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(nameInput),
-    new ActionRowBuilder().addComponents(roleInput)
+    new ActionRowBuilder().addComponents(roleInput),
+    new ActionRowBuilder().addComponents(reasonInput)
   );
 
   await interaction.showModal(modal);
@@ -2027,6 +1990,12 @@ async function handlePanelAddMemberModal(interaction, client) {
     const userId = temp.userId;
     const name = interaction.fields.getTextInputValue('member_name');
     const roleNum = interaction.fields.getTextInputValue('member_role');
+    const reason = interaction.fields.getTextInputValue('member_reason');
+
+    const reasonCheck = CONFIG.validateReasonText(reason);
+    if (!reasonCheck.valid) {
+      return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
+    }
 
     const roleMap = {
       '1': CONFIG.ROLES.MP_TRAINEE,
@@ -2041,63 +2010,76 @@ async function handlePanelAddMemberModal(interaction, client) {
       return safeReply(interaction, { content: '❌ رقم الرتبة غير صحيح', ephemeral: true });
     }
 
-    /* ─── إضافة العضو ─── */
-    const result = await firebase.addMember(userId, { name, roleId });
-
-    if (!result.success) {
-      return safeReply(interaction, { content: '❌ فشل الإضافة', ephemeral: true });
+    /* ─── فحص الصلاحية ─── */
+    const permCheck = permissions.checkPermission(interaction.member, { roleId }, 'add_member');
+    if (!permCheck.ok) {
+      tempState.delete(`add_member_${interaction.user.id}`);
+      return safeReply(interaction, {
+        content: permissions.buildPermissionError(permCheck),
+        ephemeral: true
+      });
     }
 
-    /* ─── إعطاء الرتبة في Discord ─── */
-    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
-    const member = await guild.members.fetch(userId).catch(() => null);
-    if (member) {
-      await member.roles.add(roleId).catch(() => {});
-      await member.setNickname(result.fullName).catch(() => {});
-    }
-
-    /* ─── إصدار شهادة ─── */
-    await certificates.issueCertificate(client, {
-      discordId: userId,
+    /* ─── تنفيذ الإضافة ─── */
+    const result = await memberActions.performAddMember(
+      client,
+      userId,
       name,
-      militaryId: result.militaryId,
-      roleName: CONFIG.getRoleNameEnglish(roleId),
-      roleNameAr: CONFIG.getRoleNameArabic(roleId),
       roleId,
-      issuedBy: interaction.user.id,
-      supersede: false,
-      sendDM: true,
-      logToChannel: true
-    });
+      reasonCheck.value,
+      interaction.user.id,
+      'panel'
+    );
 
-    /* ─── تحديث اللوحة ─── */
-    await refreshSynchronizedPanel(client);
     tempState.delete(`add_member_${interaction.user.id}`);
 
+    if (!result.success) {
+      return safeReply(interaction, {
+        content: `❌ فشل: ${result.error}`,
+        ephemeral: true
+      });
+    }
+
     await safeReply(interaction, {
-      content: `✅ تم إضافة <@${userId}> — الرقم: \`${result.militaryId}\``,
+      content:
+        `✅ **تم إضافة <@${userId}>**\n\n` +
+        `> 🆔 الرقم: \`${result.militaryId}\`\n` +
+        `> 🎖️ الرتبة: ${CONFIG.getRoleNameArabic(roleId)}\n` +
+        `> 📝 السبب: ${reasonCheck.value}`,
       ephemeral: true
     });
 
   } catch (err) {
     console.error('[PanelAddMember]', err);
+    tempState.delete(`add_member_${interaction.user.id}`);
     await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+ *  ⭐ إضافة نقاط — مع فلترة + سبب
+ *  ═══════════════════════════════════════════════════════════ */
+
 async function handlePanelAddPoints(interaction, client) {
-  if (!isStaff(interaction.member, 'ADD_POINTS')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
-  /* ─── عرض قائمة الأعضاء ─── */
-  const members = await firebase.getAllMembers();
-
-  if (members.length === 0) {
-    return safeReply(interaction, { content: '❌ لا يوجد أعضاء', ephemeral: true });
+  if (!permissions.isLeadership(interaction.member)) {
+    return safeReply(interaction, { content: '❌ للقيادة فقط', ephemeral: true });
   }
 
-  const options = members.slice(0, 25).map(m => ({
+  const members = await firebase.getAllMembers();
+  const eligible = permissions.filterTargetableMembers(interaction.member, members);
+
+  if (eligible.length === 0) {
+    return safeReply(interaction, {
+      content: '❌ لا يوجد أعضاء مؤهلين (استُثنيت نفسك ومن هم بمستواك أو أعلى)',
+      ephemeral: true
+    });
+  }
+
+  const options = eligible.slice(0, 25).map(m => ({
     label: `${m.militaryId} | ${m.name}`.substring(0, 100),
     description: `النقاط: ${m.points || 0}`,
     value: m.discordId
@@ -2111,19 +2093,32 @@ async function handlePanelAddPoints(interaction, client) {
   const row = new ActionRowBuilder().addComponents(select);
 
   await safeReply(interaction, {
-    content: '➕ اختر العضو لإضافة نقاط:',
+    content: `⭐ اختر العضو لإضافة نقاط:\n> 💡 **${eligible.length}** عضو مؤهل`,
     components: [row],
     ephemeral: true
   });
 }
 
 async function handlePanelAddPointsSelect(interaction, client) {
-  if (!isStaff(interaction.member, 'ADD_POINTS')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   const userId = interaction.values[0];
   const member = await firebase.getMember(userId);
+
+  if (!member) {
+    return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+  }
+
+  /* ─── فحص الصلاحية ─── */
+  const permCheck = permissions.checkPermission(interaction.member, member, 'add_points');
+  if (!permCheck.ok) {
+    return safeReply(interaction, {
+      content: permissions.buildPermissionError(permCheck),
+      ephemeral: true
+    });
+  }
 
   tempState.set(`add_points_${interaction.user.id}`, { userId });
 
@@ -2136,15 +2131,17 @@ async function handlePanelAddPointsSelect(interaction, client) {
     .setLabel(`عدد النقاط (${member.points || 0} → ?)`)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setPlaceholder('1-100')
-    .setMaxLength(3);
+    .setMinLength(1)
+    .setMaxLength(3)
+    .setPlaceholder(`1-${CONFIG.POINTS.MAX_ADD}`);
 
   const reasonInput = new TextInputBuilder()
     .setCustomId('points_reason')
     .setLabel('السبب')
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setMaxLength(200);
+    .setMinLength(CONFIG.REASON_LIMITS.MIN)
+    .setMaxLength(CONFIG.REASON_LIMITS.MAX);
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(pointsInput),
@@ -2159,26 +2156,41 @@ async function handlePanelAddPointsModal(interaction, client) {
 
   try {
     const temp = tempState.get(`add_points_${interaction.user.id}`);
-    if (!temp) return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    if (!temp) {
+      return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    }
 
     const userId = temp.userId;
     const pointsStr = interaction.fields.getTextInputValue('points_amount');
     const reason = interaction.fields.getTextInputValue('points_reason');
 
-    /* ─── Validation ─── */
     const pointsCheck = CONFIG.validatePoints(pointsStr, 'add');
     if (!pointsCheck.valid) {
       return safeReply(interaction, { content: `❌ ${pointsCheck.error}`, ephemeral: true });
     }
 
-    const reasonCheck = CONFIG.validateReason(reason);
+    const reasonCheck = CONFIG.validateReasonText(reason);
     if (!reasonCheck.valid) {
       return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
     }
 
-    /* ─── إضافة ─── */
-    const result = await firebase.addPoints(userId, pointsCheck.value, reasonCheck.value, interaction.user.id);
+    const member = await firebase.getMember(userId);
+    if (!member) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+    }
 
+    /* ─── فحص الصلاحية ─── */
+    const permCheck = permissions.checkPermission(interaction.member, member, 'add_points');
+    if (!permCheck.ok) {
+      tempState.delete(`add_points_${interaction.user.id}`);
+      return safeReply(interaction, {
+        content: permissions.buildPermissionError(permCheck),
+        ephemeral: true
+      });
+    }
+
+    /* ─── تنفيذ الإضافة ─── */
+    const result = await firebase.addPoints(userId, pointsCheck.value, reasonCheck.value, interaction.user.id);
     if (!result.success) {
       return safeReply(interaction, { content: `❌ ${result.error}`, ephemeral: true });
     }
@@ -2190,18 +2202,17 @@ async function handlePanelAddPointsModal(interaction, client) {
         await user.send({
           embeds: [embeds.success(
             client,
-            'إشعار رسمي | إضافة نقاط',
-            `تم إضافة **${pointsCheck.value}** نقطة إلى رصيدك.\n\n📊 **رصيدك الجديد:** \`${result.newPoints}\`\n📝 **السبب:** ${reasonCheck.value}\n👤 **بواسطة:** ${interaction.user.tag}`
+            'إضافة نقاط',
+            `تم إضافة **${pointsCheck.value}** نقطة إلى رصيدك.\n\n📊 **الرصيد الجديد:** \`${result.newPoints}\`\n📝 **السبب:** ${reasonCheck.value}\n👤 **بواسطة:** ${interaction.user.tag}`
           )]
         }).catch(() => {});
       }
     } catch {}
 
     /* ─── لوق ─── */
-    const member = await firebase.getMember(userId);
     await logger.logPointsAdded(client, {
       discordId: userId,
-      name: member?.name,
+      name: member.name,
       points: pointsCheck.value,
       oldPoints: result.oldPoints,
       newPoints: result.newPoints,
@@ -2209,8 +2220,9 @@ async function handlePanelAddPointsModal(interaction, client) {
       by: interaction.user.id
     }).catch(() => {});
 
-    /* ─── تحديث ─── */
-    await refreshSynchronizedPanel(client);
+    /* ─── تحديث اللوحة ─── */
+    await memberActions.refreshSynchronizedPanel(client);
+
     tempState.delete(`add_points_${interaction.user.id}`);
 
     await safeReply(interaction, {
@@ -2220,21 +2232,36 @@ async function handlePanelAddPointsModal(interaction, client) {
 
   } catch (err) {
     console.error('[PanelAddPoints]', err);
+    tempState.delete(`add_points_${interaction.user.id}`);
     await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
   }
 }
 
+
+/* ═══════════════════════════════════════════════════════════
+ *  ➖ خصم نقاط — مع فلترة + سبب
+ *  ═══════════════════════════════════════════════════════════ */
+
 async function handlePanelDeductPoints(interaction, client) {
-  if (!isStaff(interaction.member, 'DEDUCT_POINTS')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
-  const members = await firebase.getAllMembers();
-  if (members.length === 0) {
-    return safeReply(interaction, { content: '❌ لا يوجد أعضاء', ephemeral: true });
+  if (!permissions.isLeadership(interaction.member)) {
+    return safeReply(interaction, { content: '❌ للقيادة فقط', ephemeral: true });
   }
 
-  const options = members.slice(0, 25).map(m => ({
+  const members = await firebase.getAllMembers();
+  const eligible = permissions.filterTargetableMembers(interaction.member, members);
+
+  if (eligible.length === 0) {
+    return safeReply(interaction, {
+      content: '❌ لا يوجد أعضاء مؤهلين',
+      ephemeral: true
+    });
+  }
+
+  const options = eligible.slice(0, 25).map(m => ({
     label: `${m.militaryId} | ${m.name}`.substring(0, 100),
     description: `النقاط: ${m.points || 0}`,
     value: m.discordId
@@ -2248,19 +2275,31 @@ async function handlePanelDeductPoints(interaction, client) {
   const row = new ActionRowBuilder().addComponents(select);
 
   await safeReply(interaction, {
-    content: '➖ اختر العضو لخصم نقاط:',
+    content: `➖ اختر العضو لخصم نقاط:\n> 💡 **${eligible.length}** عضو مؤهل`,
     components: [row],
     ephemeral: true
   });
 }
 
 async function handlePanelDeductPointsSelect(interaction, client) {
-  if (!isStaff(interaction.member, 'DEDUCT_POINTS')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   const userId = interaction.values[0];
   const member = await firebase.getMember(userId);
+
+  if (!member) {
+    return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+  }
+
+  const permCheck = permissions.checkPermission(interaction.member, member, 'deduct_points');
+  if (!permCheck.ok) {
+    return safeReply(interaction, {
+      content: permissions.buildPermissionError(permCheck),
+      ephemeral: true
+    });
+  }
 
   tempState.set(`deduct_points_${interaction.user.id}`, { userId });
 
@@ -2273,15 +2312,17 @@ async function handlePanelDeductPointsSelect(interaction, client) {
     .setLabel(`عدد النقاط (${member.points || 0} → ?)`)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setPlaceholder('1-100')
-    .setMaxLength(3);
+    .setMinLength(1)
+    .setMaxLength(3)
+    .setPlaceholder(`1-${CONFIG.POINTS.MAX_DEDUCT}`);
 
   const reasonInput = new TextInputBuilder()
     .setCustomId('points_reason')
     .setLabel('السبب')
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setMaxLength(200);
+    .setMinLength(CONFIG.REASON_LIMITS.MIN)
+    .setMaxLength(CONFIG.REASON_LIMITS.MAX);
 
   modal.addComponents(
     new ActionRowBuilder().addComponents(pointsInput),
@@ -2296,7 +2337,9 @@ async function handlePanelDeductPointsModal(interaction, client) {
 
   try {
     const temp = tempState.get(`deduct_points_${interaction.user.id}`);
-    if (!temp) return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    if (!temp) {
+      return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    }
 
     const userId = temp.userId;
     const pointsStr = interaction.fields.getTextInputValue('points_amount');
@@ -2307,13 +2350,26 @@ async function handlePanelDeductPointsModal(interaction, client) {
       return safeReply(interaction, { content: `❌ ${pointsCheck.error}`, ephemeral: true });
     }
 
-    const reasonCheck = CONFIG.validateReason(reason);
+    const reasonCheck = CONFIG.validateReasonText(reason);
     if (!reasonCheck.valid) {
       return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
     }
 
-    const result = await firebase.removePoints(userId, pointsCheck.value, reasonCheck.value, interaction.user.id);
+    const member = await firebase.getMember(userId);
+    if (!member) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+    }
 
+    const permCheck = permissions.checkPermission(interaction.member, member, 'deduct_points');
+    if (!permCheck.ok) {
+      tempState.delete(`deduct_points_${interaction.user.id}`);
+      return safeReply(interaction, {
+        content: permissions.buildPermissionError(permCheck),
+        ephemeral: true
+      });
+    }
+
+    const result = await firebase.removePoints(userId, pointsCheck.value, reasonCheck.value, interaction.user.id);
     if (!result.success) {
       return safeReply(interaction, { content: `❌ ${result.error}`, ephemeral: true });
     }
@@ -2325,18 +2381,16 @@ async function handlePanelDeductPointsModal(interaction, client) {
         await user.send({
           embeds: [embeds.warning(
             client,
-            'إشعار رسمي | خصم نقاط',
-            `تم خصم **${pointsCheck.value}** نقطة من رصيدك.\n\n📊 **رصيدك الجديد:** \`${result.newPoints}\`\n📝 **السبب:** ${reasonCheck.value}\n👤 **بواسطة:** ${interaction.user.tag}`
+            'خصم نقاط',
+            `تم خصم **${pointsCheck.value}** نقطة من رصيدك.\n\n📊 **الرصيد الجديد:** \`${result.newPoints}\`\n📝 **السبب:** ${reasonCheck.value}\n👤 **بواسطة:** ${interaction.user.tag}`
           )]
         }).catch(() => {});
       }
     } catch {}
 
-    /* ─── لوق ─── */
-    const member = await firebase.getMember(userId);
     await logger.logPointsDeducted(client, {
       discordId: userId,
-      name: member?.name,
+      name: member.name,
       points: pointsCheck.value,
       oldPoints: result.oldPoints,
       newPoints: result.newPoints,
@@ -2344,7 +2398,8 @@ async function handlePanelDeductPointsModal(interaction, client) {
       by: interaction.user.id
     }).catch(() => {});
 
-    await refreshSynchronizedPanel(client);
+    await memberActions.refreshSynchronizedPanel(client);
+
     tempState.delete(`deduct_points_${interaction.user.id}`);
 
     await safeReply(interaction, {
@@ -2354,21 +2409,38 @@ async function handlePanelDeductPointsModal(interaction, client) {
 
   } catch (err) {
     console.error('[PanelDeductPoints]', err);
+    tempState.delete(`deduct_points_${interaction.user.id}`);
     await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+ *  ✏️ تغيير الاسم — مع فلترة + فحص + سبب
+ *  ═══════════════════════════════════════════════════════════ */
+
 async function handlePanelChangeName(interaction, client) {
-  if (!isStaff(interaction.member, 'CHANGE_NAME')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
-  const members = await firebase.getAllMembers();
-  if (members.length === 0) {
-    return safeReply(interaction, { content: '❌ لا يوجد أعضاء', ephemeral: true });
+  if (!permissions.isLeadership(interaction.member)) {
+    return safeReply(interaction, {
+      content: '❌ هذه اللوحة للقيادة فقط',
+      ephemeral: true
+    });
   }
 
-  const options = members.slice(0, 25).map(m => ({
+  const members = await firebase.getAllMembers();
+  const eligible = permissions.filterTargetableMembers(interaction.member, members);
+
+  if (eligible.length === 0) {
+    return safeReply(interaction, {
+      content: '❌ لا يوجد أعضاء يمكنك تغيير أسمائهم',
+      ephemeral: true
+    });
+  }
+
+  const options = eligible.slice(0, 25).map(m => ({
     label: `${m.militaryId} | ${m.name}`.substring(0, 100),
     value: m.discordId
   }));
@@ -2381,19 +2453,31 @@ async function handlePanelChangeName(interaction, client) {
   const row = new ActionRowBuilder().addComponents(select);
 
   await safeReply(interaction, {
-    content: '✏️ اختر العضو لتغيير اسمه:',
+    content: `✏️ اختر العضو لتغيير اسمه:\n> 💡 **${eligible.length}** عضو مؤهل`,
     components: [row],
     ephemeral: true
   });
 }
 
 async function handlePanelChangeNameSelect(interaction, client) {
-  if (!isStaff(interaction.member, 'CHANGE_NAME')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   const userId = interaction.values[0];
   const member = await firebase.getMember(userId);
+
+  if (!member) {
+    return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+  }
+
+  const permCheck = permissions.checkPermission(interaction.member, member, 'change_name');
+  if (!permCheck.ok) {
+    return safeReply(interaction, {
+      content: permissions.buildPermissionError(permCheck),
+      ephemeral: true
+    });
+  }
 
   tempState.set(`change_name_${interaction.user.id}`, { userId });
 
@@ -2406,9 +2490,22 @@ async function handlePanelChangeNameSelect(interaction, client) {
     .setLabel(`الاسم الجديد (الحالي: ${member.name})`)
     .setStyle(TextInputStyle.Short)
     .setRequired(true)
-    .setMaxLength(50);
+    .setMinLength(CONFIG.NAME.MIN_NAME_LENGTH)
+    .setMaxLength(CONFIG.NAME.MAX_NAME_LENGTH);
 
-  modal.addComponents(new ActionRowBuilder().addComponents(nameInput));
+  const reasonInput = new TextInputBuilder()
+    .setCustomId('change_name_reason')
+    .setLabel('سبب التغيير')
+    .setStyle(TextInputStyle.Paragraph)
+    .setRequired(true)
+    .setMinLength(CONFIG.REASON_LIMITS.MIN)
+    .setMaxLength(CONFIG.REASON_LIMITS.MAX)
+    .setPlaceholder('اذكر السبب...');
+
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(nameInput),
+    new ActionRowBuilder().addComponents(reasonInput)
+  );
 
   await interaction.showModal(modal);
 }
@@ -2418,89 +2515,101 @@ async function handlePanelChangeNameModal(interaction, client) {
 
   try {
     const temp = tempState.get(`change_name_${interaction.user.id}`);
-    if (!temp) return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    if (!temp) {
+      return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    }
 
     const userId = temp.userId;
     const newName = interaction.fields.getTextInputValue('new_name');
+    const reason = interaction.fields.getTextInputValue('change_name_reason');
 
-    const member = await firebase.getMember(userId);
-    if (!member) return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
-
-    const oldName = member.name;
-
-    /* ─── تحديث Firebase ─── */
-    await firebase.updateMember(userId, {
-      name: newName,
-      nameOriginal: newName
-    });
-
-    /* ─── تحديث الـ Nickname ─── */
-    const fullName = CONFIG.buildFullName(member.militaryId, newName);
-    await firebase.updateMember(userId, { nickname: fullName });
-
-    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
-    const guildMember = await guild.members.fetch(userId).catch(() => null);
-    if (guildMember) {
-      await guildMember.setNickname(fullName).catch(() => {});
+    const reasonCheck = CONFIG.validateReasonText(reason);
+    if (!reasonCheck.valid) {
+      return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
     }
 
-    /* ─── إعادة إصدار الشهادة ─── */
-    await certificates.reissueCertificateOnNameChange(
+    const member = await firebase.getMember(userId);
+    if (!member) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+    }
+
+    const permCheck = permissions.checkPermission(interaction.member, member, 'change_name');
+    if (!permCheck.ok) {
+      tempState.delete(`change_name_${interaction.user.id}`);
+      return safeReply(interaction, {
+        content: permissions.buildPermissionError(permCheck),
+        ephemeral: true
+      });
+    }
+
+    /* ─── تنفيذ تغيير الاسم ─── */
+    const result = await memberActions.performNameChange(
       client,
       userId,
       newName,
-      interaction.user.id
+      reasonCheck.value,
+      interaction.user.id,
+      'panel'
     );
 
-    /* ─── DM ─── */
-    try {
-      const user = await client.users.fetch(userId).catch(() => null);
-      if (user) {
-        await user.send({
-          embeds: [embeds.info(
-            client,
-            'تم تحديث اسمك',
-            `📛 **الاسم القديم:** \`${oldName}\`\n✨ **الاسم الجديد:** \`${newName}\`\n👤 **بواسطة:** ${interaction.user.tag}`
-          )]
-        }).catch(() => {});
-      }
-    } catch {}
-
-    /* ─── لوق ─── */
-    await logger.logNameChanged(client, {
-      discordId: userId,
-      oldName,
-      newName,
-      by: interaction.user.id
-    }).catch(() => {});
-
-    await refreshSynchronizedPanel(client);
     tempState.delete(`change_name_${interaction.user.id}`);
 
+    if (!result.success) {
+      return safeReply(interaction, {
+        content: `❌ فشل: ${result.error}`,
+        ephemeral: true
+      });
+    }
+
     await safeReply(interaction, {
-      content: `✅ تم تغيير الاسم إلى **${newName}**`,
+      content:
+        `✅ **تم تغيير الاسم**\n\n` +
+        `> 📛 القديم: \`${result.oldName}\`\n` +
+        `> ✨ الجديد: \`${result.newName}\`\n` +
+        `> 🗑️ رسائل محذوفة (لوق): **${result.deletedFromLog}**\n` +
+        `> 📬 رسائل محذوفة (DM): **${result.deletedFromDM}**`,
       ephemeral: true
     });
 
   } catch (err) {
     console.error('[PanelChangeName]', err);
+    tempState.delete(`change_name_${interaction.user.id}`);
     await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
   }
 }
 
+/* ═══════════════════════════════════════════════════════════
+ *  🗑️ ترميج عضو — مع فلترة الأعضاء + فحص الصلاحية
+ *  ═══════════════════════════════════════════════════════════ */
+
 async function handlePanelTerminate(interaction, client) {
-  if (!isStaff(interaction.member, 'TERMINATION')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
-  const members = await firebase.getAllMembers();
-  if (members.length === 0) {
-    return safeReply(interaction, { content: '❌ لا يوجد أعضاء', ephemeral: true });
+  /* ─── فحص القيادة ─── */
+  if (!permissions.isLeadership(interaction.member)) {
+    return safeReply(interaction, {
+      content: '❌ هذه اللوحة للقيادة فقط (مساعد قائد وأعلى)',
+      ephemeral: true
+    });
   }
 
-  const options = members.slice(0, 25).map(m => ({
+  const members = await firebase.getAllMembers();
+
+  /* ─── فلترة الأعضاء المؤهلين ─── */
+  const eligible = permissions.filterTargetableMembers(interaction.member, members);
+
+  if (eligible.length === 0) {
+    return safeReply(interaction, {
+      content: '❌ لا يوجد أعضاء يمكنك ترميجهم\n> (لا يمكنك ترميج نفسك أو من هم بنفس مستواك أو أعلى)',
+      ephemeral: true
+    });
+  }
+
+  const options = eligible.slice(0, 25).map(m => ({
     label: `${m.militaryId} | ${m.name}`.substring(0, 100),
-    description: `النقاط: ${m.points || 0}`,
+    description: `${permissions.LEVEL_NAMES_AR ? CONFIG.getLevelNameArabic(CONFIG.getRoleLevel(m.roleId)) : ''} | النقاط: ${m.points || 0}`,
     value: m.discordId
   }));
 
@@ -2512,19 +2621,32 @@ async function handlePanelTerminate(interaction, client) {
   const row = new ActionRowBuilder().addComponents(select);
 
   await safeReply(interaction, {
-    content: '🗑️ اختر العضو للترميج:',
+    content: `🗑️ اختر العضو للترميج:\n> 💡 **${eligible.length}** عضو مؤهل (استُثنيت نفسك ومن هم بمستواك أو أعلى)`,
     components: [row],
     ephemeral: true
   });
 }
 
 async function handlePanelTerminateSelect(interaction, client) {
-  if (!isStaff(interaction.member, 'TERMINATION')) {
+  if (!isStaff(interaction.member, 'PANEL_MANAGEMENT')) {
     return safeReply(interaction, { content: '❌ ليس لديك صلاحية', ephemeral: true });
   }
 
   const userId = interaction.values[0];
   const member = await firebase.getMember(userId);
+
+  if (!member) {
+    return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
+  }
+
+  /* ─── فحص الصلاحية ─── */
+  const permCheck = permissions.checkPermission(interaction.member, member, 'terminate');
+  if (!permCheck.ok) {
+    return safeReply(interaction, {
+      content: permissions.buildPermissionError(permCheck),
+      ephemeral: true
+    });
+  }
 
   tempState.set(`terminate_${interaction.user.id}`, { userId });
 
@@ -2537,7 +2659,9 @@ async function handlePanelTerminateSelect(interaction, client) {
     .setLabel(`سبب ترميج ${member.name} (${member.militaryId})`)
     .setStyle(TextInputStyle.Paragraph)
     .setRequired(true)
-    .setMaxLength(300);
+    .setMinLength(CONFIG.REASON_LIMITS.MIN)
+    .setMaxLength(CONFIG.REASON_LIMITS.MAX)
+    .setPlaceholder('اذكر سبب الترميج بالتفصيل...');
 
   modal.addComponents(new ActionRowBuilder().addComponents(reasonInput));
 
@@ -2549,100 +2673,65 @@ async function handlePanelTerminateModal(interaction, client) {
 
   try {
     const temp = tempState.get(`terminate_${interaction.user.id}`);
-    if (!temp) return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    if (!temp) {
+      return safeReply(interaction, { content: '❌ انتهت الجلسة', ephemeral: true });
+    }
 
     const userId = temp.userId;
     const reason = interaction.fields.getTextInputValue('terminate_reason');
 
+    /* ─── فحص السبب ─── */
+    const reasonCheck = CONFIG.validateReasonText(reason);
+    if (!reasonCheck.valid) {
+      return safeReply(interaction, { content: `❌ ${reasonCheck.error}`, ephemeral: true });
+    }
+
+    /* ─── فحص العضو + الصلاحية ─── */
     const member = await firebase.getMember(userId);
-    if (!member) return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
-
-    /* ─── 1. إبطال الشهادات ─── */
-    const certResult = await firebase.invalidateAllCertificates(userId, 'termination');
-
-    /* ─── 2. لوق الإبطال ─── */
-    if (certResult.invalidatedCount > 0) {
-      await certificates.logCertificateInvalidation(client, {
-        discordId: userId,
-        name: member.name,
-        militaryId: member.militaryId,
-        certificatesCount: certResult.invalidatedCount,
-        reason: 'termination',
-        by: interaction.user.id
-      }).catch(() => {});
+    if (!member) {
+      return safeReply(interaction, { content: '❌ العضو غير موجود', ephemeral: true });
     }
 
-    /* ─── 3. حذف العضو + إعادة الترتيب ─── */
-    const removeResult = await firebase.removeMember(userId);
-
-    /* ─── 4. تحديث Discord ─── */
-    const guild = await client.guilds.fetch(CONFIG.GUILD_ID);
-    const guildMember = await guild.members.fetch(userId).catch(() => null);
-
-    if (guildMember) {
-      /* إزالة كل الرتب */
-      for (const roleId of CONFIG.ALL_RANKS) {
-        await guildMember.roles.remove(roleId).catch(() => {});
-      }
-      /* إرجاع الاسم الأصلي */
-      await guildMember.setNickname(null).catch(() => {});
+    const permCheck = permissions.checkPermission(interaction.member, member, 'terminate');
+    if (!permCheck.ok) {
+      tempState.delete(`terminate_${interaction.user.id}`);
+      return safeReply(interaction, {
+        content: permissions.buildPermissionError(permCheck),
+        ephemeral: true
+      });
     }
 
-    /* ─── 5. لوق الترميج ─── */
-    await logger.logMemberRemoved(client, {
-      discordId: userId,
-      name: member.name,
-      militaryId: member.militaryId,
-      points: member.points || 0,
-      reason,
-      by: interaction.user.id,
-      reordered: removeResult.changes.length
-    }).catch(() => {});
+    /* ─── تنفيذ الترميج عبر الدالة الموحدة ─── */
+    const result = await memberActions.performTerminate(
+      client,
+      userId,
+      reasonCheck.value,
+      interaction.user.id,
+      'panel'
+    );
 
-    /* ─── 6. لكل عضو تغيّر رقمه → شهادة جديدة ─── */
-    for (const change of removeResult.changes) {
-      try {
-        await certificates.reissueCertificateOnReorder(
-          client,
-          change.memberData,
-          change.newId
-        );
-
-        /* تحديث Discord */
-        const changedMember = await guild.members.fetch(change.discordId).catch(() => null);
-        if (changedMember && change.newNickname) {
-          await changedMember.setNickname(change.newNickname).catch(() => {});
-        }
-      } catch (err) {
-        console.error(`[Terminate] فشل تحديث ${change.discordId}:`, err.message);
-      }
-    }
-
-    /* ─── 7. DM ─── */
-    try {
-      const user = await client.users.fetch(userId).catch(() => null);
-      if (user) {
-        await user.send({
-          embeds: [embeds.error(
-            client,
-            'تم ترميجك',
-            `تم **ترميجك** من الشرطة العسكرية.\n\n📝 **السبب:** ${reason}\n\n⚠️ أنت الآن عسكري عادي، ولا يحق لك المساس بأعمال الشرطة العسكرية.`
-          )]
-        }).catch(() => {});
-      }
-    } catch {}
-
-    /* ─── تحديث ─── */
-    await refreshSynchronizedPanel(client);
     tempState.delete(`terminate_${interaction.user.id}`);
 
+    if (!result.success) {
+      return safeReply(interaction, {
+        content: `❌ فشل الترميج: ${result.error}`,
+        ephemeral: true
+      });
+    }
+
     await safeReply(interaction, {
-      content: `✅ تم ترميج **${member.name}** — تم إبطال ${certResult.invalidatedCount} شهادة — إعادة ترقيم ${removeResult.changes.length} عضو`,
+      content:
+        `✅ **تم ترميج ${member.name}**\n\n` +
+        `> 🎖️ شهادات مُبطلة: **${result.invalidatedCount}**\n` +
+        `> 🗑️ رسائل محذوفة (لوق): **${result.deletedFromLog}**\n` +
+        `> 📬 رسائل محذوفة (DM): **${result.deletedFromDM}**\n` +
+        `> 🔄 إعادة ترقيم: **${result.reorderedCount}** عضو`,
       ephemeral: true
     });
 
   } catch (err) {
     console.error('[PanelTerminate]', err);
+    tempState.delete(`terminate_${interaction.user.id}`);
     await safeReply(interaction, { content: `❌ ${err.message}`, ephemeral: true });
   }
 }

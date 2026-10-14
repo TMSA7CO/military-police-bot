@@ -12,6 +12,10 @@ const firebase = require('../firebase');
 const logger = require('../utils/logger');
 const certificates = require('../utils/certificates');
 
+/* ✨ جديد — الإجراءات الموحدة */
+const memberActions = require('../utils/memberActions');
+const permissions = require('../utils/permissions');
+
 const processingMembers = new Set();
 
 /* ═══════════════════════════════════════════════════════════
@@ -58,108 +62,61 @@ function isHigherRole(role1, role2) {
  * ✅ استخراج الاسم من displayName (وليس username)
  * displayName = الاسم الذي يظهر في الشات (nickname أو globalName)
  */
+/**
+ * استخراج الاسم من displayName أو nickname
+ * (بدون بادئة [M-XX])
+ */
 function extractDisplayName(member) {
-  // الأولوية:
-  // 1. nickname (الاسم في السيرفر)
-  // 2. displayName (globalName من إعدادات المستخدم)
-  // 3. username (الحساب - آخر حل)
-  let name = member.nickname || member.displayName || member.user.globalName || member.user.username;
-  // إزالة البادئة [M-XX]
+  let name = member.nickname
+    || member.displayName
+    || member.user.globalName
+    || member.user.username;
+
+  /* إزالة بادئة [M-XX] */
   name = name.replace(/^\[M-\d+\]\s*/, '').trim();
+
   if (!name || name.length < 2) {
     name = member.user.username;
   }
+
   return name;
 }
 
+/**
+ * ✨ استخراج الاسم من النك نيم فقط (بدون بادئة)
+ * يُستخدم لمقارنة الاسم القديم والجديد
+ */
+function extractCleanName(nickname) {
+  if (!nickname) return '';
+  return nickname.replace(/^\[M-\d+\]\s*/, '').trim();
+}
 /* ═══════════════════════════════════════════════════════════
  *              إضافة عضو جديد (من خارج البوت)
  *  ═══════════════════════════════════════════════════════════ */
 
+/**
+ * ✅ إضافة عضو يدوياً — يستدعي performAddMember الموحدة
+ * (نفس سلوك الزر تماماً)
+ */
 async function autoAddMember(client, member, newRole) {
   try {
-    // ✅ لو موجود مسبقاً، نحدّث بس
-    const existing = await firebase.getMember(member.id);
+    console.log(`[autoAddMember] ➕ إضافة يدوية: ${member.user.tag}`);
 
-    if (existing) {
-      console.log(`[autoAddMember] العضو موجود — تحديث`);
-
-      // تحديث الرتبة فقط (بدون مسح البيانات)
-      if (existing.roleId !== newRole) {
-        await firebase.updateMember(member.id, { roleId: newRole });
-      }
-
-      // تأكد من وجود شهادة نشطة
-      const certs = await firebase.getActiveCertificates(member.id);
-      if (certs.length === 0) {
-        const certResult = await certificates.issueCertificate(client, {
-          discordId: member.id,
-          name: existing.nameOriginal || existing.name,
-          militaryId: existing.militaryId,
-          roleName: CONFIG.getRoleNameEnglish(newRole),
-          roleNameAr: CONFIG.getRoleNameArabic(newRole),
-          roleId: newRole,
-          issuedBy: 'System (Auto-Detect)',
-          supersede: false,
-          sendDM: true,
-          logToChannel: true
-        });
-        console.log(`[autoAddMember] شهادة صادرة: ${certResult.success ? 'OK' : 'FAIL'}`);
-      }
-
-      return { success: true, militaryId: existing.militaryId, wasExisting: true };
-    }
-
-    // ✅ عضو جديد
+    /* ─── استخراج الاسم ─── */
     const name = extractDisplayName(member);
-    console.log(`[autoAddMember] اسم مستخرج: ${name}`);
 
-    let militaryId = CONFIG.getMilitaryIdForRole(newRole);
-    if (!militaryId) {
-      militaryId = await firebase.getNextMilitaryId();
-    }
-
-    const fullName = CONFIG.buildFullName(militaryId, name);
-
-    await firebase.addMember(member.id, {
+    /* ─── استدعاء الدالة الموحدة ─── */
+    const result = await memberActions.performAddMember(
+      client,
+      member.id,
       name,
-      roleId: newRole
-    });
+      newRole,
+      'إضافة يدوية من Discord',
+      'System (Auto-Detect)',
+      'manual'
+    );
 
-    // محاولة تغيير الاسم (لو فشل، نكمل)
-    try {
-      await member.setNickname(fullName, 'تعيين رتبة جديدة');
-      console.log(`[autoAddMember] ✅ تم تغيير الاسم`);
-    } catch (nickErr) {
-      console.error(`[autoAddMember] ❌ فشل تغيير الاسم:`, nickErr.message, `(code: ${nickErr.code})`);
-      console.error(`   سبب متوقع: رتبة البوت أدنى من رتبة العضو، أو صلاحيات ناقصة`);
-    }
-
-    // ✅ إصدار شهادة
-    const certResult = await certificates.issueCertificate(client, {
-      discordId: member.id,
-      name,
-      militaryId,
-      roleName: CONFIG.getRoleNameEnglish(newRole),
-      roleNameAr: CONFIG.getRoleNameArabic(newRole),
-      roleId: newRole,
-      issuedBy: 'System (Auto-Detect)',
-      supersede: false,
-      sendDM: true,
-      logToChannel: true
-    });
-
-    console.log(`[autoAddMember] شهادة: ${certResult.success ? 'OK' : 'FAIL'} | DM: ${certResult.dmSent ? 'OK' : 'FAIL'}`);
-
-    await logger.logMemberAdded(client, {
-      discordId: member.id,
-      name,
-      militaryId,
-      roleId: newRole,
-      by: 'النظام (اكتشاف تلقائي)'
-    }).catch(() => {});
-
-    return { success: true, militaryId };
+    return result;
 
   } catch (err) {
     console.error('[autoAddMember]', err);
@@ -171,13 +128,19 @@ async function autoAddMember(client, member, newRole) {
  *              تحديث رتبة عضو موجود
  *  ═══════════════════════════════════════════════════════════ */
 
+/**
+ * ✅ تحديث رتبة يدوياً — ترقية أو تخفيض
+ * (يستدعي منطق الترقية القيادية + reissueCertificateOnUpdate)
+ */
 async function autoUpdateRole(client, member, oldRole, newRole) {
   try {
     const memberData = await firebase.getMember(member.id);
     if (!memberData) {
+      /* لو ما كان موجود، نضيفه مباشرة */
       return autoAddMember(client, member, newRole);
     }
 
+    /* ─── حساب الـ ID الجديد ─── */
     let newMilitaryId = CONFIG.getMilitaryIdForRole(newRole);
     if (!newMilitaryId) {
       if (CONFIG.isLeadershipRole(oldRole) && !CONFIG.isLeadershipRole(newRole)) {
@@ -187,11 +150,13 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
       }
     }
 
+    /* ─── تحديث Firebase ─── */
     await firebase.updateMember(member.id, {
       roleId: newRole,
       militaryId: newMilitaryId
     });
 
+    /* ─── تحديث النك نيم ─── */
     const nameBase = memberData.nameOriginal || memberData.name || extractDisplayName(member);
     const fullName = CONFIG.buildFullName(newMilitaryId, nameBase);
 
@@ -203,8 +168,10 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
       console.error(`[autoUpdateRole] فشل تغيير الاسم: ${err.message}`);
     }
 
+    /* ─── تحديد: ترقية أو تخفيض ─── */
     const isPromotion = isHigherRole(newRole, oldRole);
-        // ✅✅✅ إعادة ترقيم الأفراد عند الترقية القيادية
+
+    /* ─── الترقية القيادية → إعادة ترقيم الأفراد ─── */
     const oldWasLeadership = CONFIG.isLeadershipRole(oldRole);
     const newIsLeadership = CONFIG.isLeadershipRole(newRole);
 
@@ -213,7 +180,7 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
 
       const reorderResult = await firebase.reorderMilitaryIds();
 
-      for (const change of reorderResult.changes) {
+      for (const change of (reorderResult.changes || [])) {
         try {
           await certificates.reissueCertificateOnReorder(
             client,
@@ -230,8 +197,8 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
         }
       }
     }
-    
-    // ✅ إعادة إصدار الشهادة
+
+    /* ─── إعادة إصدار الشهادة ─── */
     await certificates.reissueCertificateOnUpdate(
       client,
       member.id,
@@ -240,21 +207,21 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
       'System (Auto-Detect)'
     );
 
-    // لوق
+    /* ─── لوق ─── */
     if (isPromotion) {
       await logger.sendLog(client, 'member_promoted', {
-        description: `تم ترقية العضو تلقائياً`,
+        description: `تم ترقية العضو يدوياً`,
         fields: [
           { name: '👤 العضو', value: `<@${member.id}>`, inline: true },
           { name: '⬆️ من', value: CONFIG.getRoleNameEnglish(oldRole), inline: true },
-          { name: '⬇️ إلى', value: CONFIG.getRoleNameEnglish(newRole), inline: true },
+          { name: '⬆️ إلى', value: CONFIG.getRoleNameEnglish(newRole), inline: true },
           { name: '🆔 الرقم', value: `\`${newMilitaryId}\``, inline: true }
         ],
         userId: member.id
       }).catch(() => {});
     } else {
       await logger.sendLog(client, 'member_demoted', {
-        description: `تم تخفيض رتبة العضو تلقائياً`,
+        description: `تم تخفيض رتبة العضو يدوياً`,
         fields: [
           { name: '👤 العضو', value: `<@${member.id}>`, inline: true },
           { name: '⬇️ من', value: CONFIG.getRoleNameEnglish(oldRole), inline: true },
@@ -272,130 +239,74 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
   }
 }
 
+/**
+ * ✨ تغيير الاسم يدوياً — يستدعي performNameChange الموحدة
+ */
+async function handleNicknameChange(client, member, oldNickname, newNickname) {
+  try {
+    const oldClean = extractCleanName(oldNickname);
+    const newClean = extractCleanName(newNickname);
+
+    /* ─── لو الاسم الفعلي ما تغير، تجاهل ─── */
+    if (oldClean === newClean) return null;
+
+    /* ─── لو الاسم الجديد فارغ، تجاهل ─── */
+    if (!newClean || newClean.length < 2) return null;
+
+    console.log(`[handleNicknameChange] ✏️ تغيير يدوي: "${oldClean}" → "${newClean}"`);
+
+    /* ─── استدعاء الدالة الموحدة ─── */
+    const result = await memberActions.performNameChange(
+      client,
+      member.id,
+      newClean,
+      'تغيير يدوي من Discord',
+      'System (Auto-Detect)',
+      'manual'
+    );
+
+    return result;
+
+  } catch (err) {
+    console.error('[handleNicknameChange]', err);
+    return { success: false, error: err.message };
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════
  *              إزالة عضو (ترميج يدوي)
  *  ═══════════════════════════════════════════════════════════ */
 
+/**
+ * ✅ ترميج يدوي — يستدعي performTerminate الموحدة
+ * (نفس سلوك الزر تماماً + حذف الشهادات من اللوق + DM)
+ */
 async function autoRemoveMember(client, member, removedRole) {
   try {
+    console.log(`[autoRemoveMember] 🗑️ ترميج يدوي: ${member.user.tag}`);
+
+    /* ─── التحقق من وجود العضو في Firebase ─── */
     const memberData = await firebase.getMember(member.id);
+
     if (!memberData) {
       console.log(`[autoRemoveMember] العضو غير موجود في Firebase — تجاهل`);
-      // حتى لو ما كان موجود، نرجع الاسم
+      /* نحاول فقط إرجاع الاسم */
       try {
         await member.setNickname(null, 'إزالة الرتبة').catch(() => {});
       } catch {}
       return { success: true, skipped: true };
     }
 
-    console.log(`[autoRemoveMember] بدء معالجة ترميج ${member.user.tag}`);
-    console.log(`   📛 الاسم: ${memberData.nameOriginal || memberData.name}`);
-    console.log(`   🆔 الرقم: ${memberData.militaryId}`);
+    /* ─── استدعاء الدالة الموحدة ─── */
+    const result = await memberActions.performTerminate(
+      client,
+      member.id,
+      'ترميج يدوي من Discord',
+      'System (Auto-Detect)',
+      'manual'
+    );
 
-    // ═══════════════════════════════════════════════════
-    // 1. إبطال كل الشهادات
-    // ═══════════════════════════════════════════════════
-    const certResult = await firebase.invalidateAllCertificates(member.id, 'termination');
-    console.log(`[autoRemoveMember] تم إبطال ${certResult.invalidatedCount} شهادة`);
-
-    if (certResult.invalidatedCount > 0) {
-      // لوق الإبطال
-      await certificates.logCertificateInvalidation(client, {
-        discordId: member.id,
-        name: memberData.nameOriginal || memberData.name,
-        militaryId: memberData.militaryId,
-        certificatesCount: certResult.invalidatedCount,
-        reason: 'termination',
-        by: 'النظام (اكتشاف تلقائي)'
-      }).catch(() => {});
-
-      // ✅ إرسال DM يُعلمه بإبطال الشهادة (بصورة الشهادة المشطوبة)
-      try {
-        await certificates.sendInvalidationDM(client, member.id, {
-          name: memberData.nameOriginal || memberData.name,
-          militaryId: memberData.militaryId,
-          count: certResult.invalidatedCount,
-          reason: 'إزالة رتبتك من الشرطة العسكرية'
-        });
-        console.log(`[autoRemoveMember] ✅ تم إرسال DM الإبطال`);
-      } catch (dmErr) {
-        console.error(`[autoRemoveMember] ❌ فشل DM الإبطال:`, dmErr.message);
-      }
-    }
-
-    // ═══════════════════════════════════════════════════
-    // 2. حذف العضو من Firebase + إعادة الترتيب
-    // ═══════════════════════════════════════════════════
-    const removeResult = await firebase.removeMember(member.id);
-    console.log(`[autoRemoveMember] تم الحذف — إعادة ترقيم ${removeResult.changes.length} عضو`);
-
-    // ═══════════════════════════════════════════════════
-    // 3. إرجاع الاسم الأصلي
-    // ═══════════════════════════════════════════════════
-    try {
-      await member.setNickname(null, 'إزالة الرتبة');
-      console.log(`[autoRemoveMember] ✅ تم إرجاع الاسم`);
-    } catch (err) {
-      console.error(`[autoRemoveMember] ❌ فشل إرجاع الاسم:`, err.message);
-    }
-
-    // ═══════════════════════════════════════════════════
-    // 4. DM الترميج
-    // ═══════════════════════════════════════════════════
-    try {
-      await member.send({
-        embeds: [{
-          color: 0xef4444,
-          title: '❌ تم إزالة رتبتك العسكرية',
-          description:
-            `تم إزالة رتبتك من قبل الإدارة.\n\n` +
-            `📛 **الاسم السابق:** ${memberData.nameOriginal || memberData.name}\n` +
-            `🆔 **الرقم السابق:** \`${memberData.militaryId}\`\n\n` +
-            `━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-            `⚠️ **جميع شهاداتك تم إبطالها**`,
-          footer: { text: 'Military Police — Ministry of Defense' },
-          timestamp: new Date().toISOString()
-        }]
-      });
-      console.log(`[autoRemoveMember] ✅ تم إرسال DM الترميج`);
-    } catch (dmErr) {
-      console.error(`[autoRemoveMember] ❌ فشل DM:`, dmErr.message);
-    }
-
-    // ═══════════════════════════════════════════════════
-    // 5. لوق
-    // ═══════════════════════════════════════════════════
-    await logger.logMemberRemoved(client, {
-      discordId: member.id,
-      name: memberData.nameOriginal || memberData.name,
-      militaryId: memberData.militaryId,
-      points: memberData.points || 0,
-      reason: 'إزالة رتبة خارجياً',
-      by: 'النظام (اكتشاف تلقائي)',
-      reordered: removeResult.changes.length
-    }).catch(() => {});
-
-    // ═══════════════════════════════════════════════════
-    // 6. شهادات جديدة للأعضاء اللي تغير رقمهم
-    // ═══════════════════════════════════════════════════
-    for (const change of removeResult.changes) {
-      try {
-        await certificates.reissueCertificateOnReorder(
-          client,
-          change.memberData,
-          change.newId
-        );
-
-        const changedMember = await member.guild.members.fetch(change.discordId).catch(() => null);
-        if (changedMember && change.newNickname) {
-          await changedMember.setNickname(change.newNickname, 'إعادة ترقيم').catch(() => {});
-        }
-      } catch (err) {
-        console.error(`[autoRemoveMember] فشل تحديث ${change.discordId}:`, err.message);
-      }
-    }
-
-    return { success: true, reordered: removeResult.changes.length };
+    return result;
 
   } catch (err) {
     console.error('[autoRemoveMember]', err);
@@ -439,51 +350,82 @@ module.exports = {
 
   async execute(oldMember, newMember, client) {
     try {
+      /* ─── تجاهل البوتات والسيرفرات الأخرى ─── */
       if (newMember.user.bot) return;
       if (newMember.guild.id !== CONFIG.GUILD_ID) return;
+
+      /* ─── منع الحلقات اللانهائية ─── */
       if (processingMembers.has(newMember.id)) {
-        console.log(`[GuildMemberUpdate] تخطي ${newMember.user.tag} — قيد المعالجة`);
+        console.log(`[GuildMemberUpdate] ⏭️ تخطي ${newMember.user.tag} — قيد المعالجة`);
         return;
       }
 
+      /* ─── 1. تحقق من تغيير الرتب ─── */
       const oldRoles = getMilitaryRoles(oldMember);
       const newRoles = getMilitaryRoles(newMember);
 
-      const added = newRoles.filter(r => !oldRoles.includes(r));
-      const removed = oldRoles.filter(r => !newRoles.includes(r));
+      const addedRoles = newRoles.filter(r => !oldRoles.includes(r));
+      const removedRoles = oldRoles.filter(r => !newRoles.includes(r));
+      const hasRoleChange = addedRoles.length > 0 || removedRoles.length > 0;
 
-      if (added.length === 0 && removed.length === 0) return;
+      /* ─── 2. تحقق من تغيير الاسم ─── */
+      const oldNickname = oldMember.nickname || '';
+      const newNickname = newMember.nickname || '';
+      const hasNicknameChange = oldNickname !== newNickname
+        && extractCleanName(oldNickname) !== extractCleanName(newNickname);
 
+      /* ─── لو ما فيه تغيير ─── */
+      if (!hasRoleChange && !hasNicknameChange) return;
+
+      /* ─── قفل العضو ─── */
       processingMembers.add(newMember.id);
 
       try {
-        const oldRole = getHighestRole(oldRoles);
-        const newRole = getHighestRole(newRoles);
+        /* ═══════════════════════════════════════
+         *  أ) تغيير الاسم (يدوياً)
+         *  ═══════════════════════════════════════ */
+        if (hasNicknameChange) {
+          console.log(`\n[GuildMemberUpdate] 👤 ${newMember.user.tag}`);
+          console.log(`   ✏️ تغيير اسم يدوي`);
 
-        console.log(`\n[GuildMemberUpdate] 👤 ${newMember.user.tag}`);
-        console.log(`   📌 القديم: ${oldRole || '—'}`);
-        console.log(`   📌 الجديد: ${newRole || '—'}`);
-
-        // 1. عضو جديد
-        if (!oldRole && newRole) {
-          console.log(`   ➡️ إضافة تلقائية`);
-          await autoAddMember(client, newMember, newRole);
-        }
-        // 2. إزالة كاملة
-        else if (oldRole && !newRole) {
-          console.log(`   ➡️ ترميج تلقائي`);
-          await autoRemoveMember(client, newMember, oldRole);
-        }
-        // 3. تغيير الرتبة
-        else if (oldRole && newRole && oldRole !== newRole) {
-          console.log(`   ➡️ تحديث رتبة`);
-          await autoUpdateRole(client, newMember, oldRole, newRole);
+          await handleNicknameChange(client, newMember, oldNickname, newNickname);
         }
 
-        // تحديث اللوحة
-        await refreshSynchronizedPanel(client);
+        /* ═══════════════════════════════════════
+         *  ب) تغيير الرتب (يدوياً)
+         *  ═══════════════════════════════════════ */
+        if (hasRoleChange) {
+          const oldRole = getHighestRole(oldRoles);
+          const newRole = getHighestRole(newRoles);
+
+          console.log(`\n[GuildMemberUpdate] 👤 ${newMember.user.tag}`);
+          console.log(`   📌 الرتبة القديمة: ${oldRole || '—'}`);
+          console.log(`   📌 الرتبة الجديدة: ${newRole || '—'}`);
+
+          /* 1. عضو جديد (ما كان عنده رتبة وصار عنده) */
+          if (!oldRole && newRole) {
+            console.log(`   ➡️ إضافة يدوية`);
+            await autoAddMember(client, newMember, newRole);
+          }
+          /* 2. ترميج كامل (كان عنده رتبة وما عنده الآن) */
+          else if (oldRole && !newRole) {
+            console.log(`   ➡️ ترميج يدوي`);
+            await autoRemoveMember(client, newMember, oldRole);
+          }
+          /* 3. تغيير رتبة (من رتبة لرتبة) */
+          else if (oldRole && newRole && oldRole !== newRole) {
+            console.log(`   ➡️ تحديث رتبة`);
+            await autoUpdateRole(client, newMember, oldRole, newRole);
+          }
+        }
+
+        /* ═══════════════════════════════════════
+         *  ج) تحديث اللوحة المتزامنة
+         *  ═══════════════════════════════════════ */
+        await memberActions.refreshSynchronizedPanel(client);
 
       } finally {
+        /* ─── فتح القفل بعد 3 ثواني ─── */
         setTimeout(() => processingMembers.delete(newMember.id), 3000);
       }
 
@@ -493,10 +435,12 @@ module.exports = {
     }
   },
 
-  autoAddMember,
+ autoAddMember,
   autoUpdateRole,
   autoRemoveMember,
+  handleNicknameChange,     /* ✨ جديد */
   getMilitaryRoles,
   getHighestRole,
-  extractDisplayName
+  extractDisplayName,
+  extractCleanName          /* ✨ جديد */
 };
