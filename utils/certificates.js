@@ -9,7 +9,71 @@
 const { createCanvas, loadImage } = require('@napi-rs/canvas');
 const { AttachmentBuilder, EmbedBuilder } = require('discord.js');
 const CONFIG = require('../config');
+/* ✨ جديد — إجبار تحميل الخطوط قبل أي رسم */
+const { ensureFontsReady } = require('./fontManager');
+/* ═══════════════════════════════════════════════════════════
+ *  ✨ دوال مساعدة لرسم النص العربي على Canvas
+ *  ═══════════════════════════════════════════════════════════ */
 
+/**
+ * رسم نص عربي باتجاه RTL
+ * يدعم التقليص التلقائي إذا النص طويل
+ */
+function drawArabicText(ctx, text, x, y, options = {}) {
+  const {
+    font = '900 46px "Cairo", "Almarai", "Amiri", sans-serif',
+    color = '#ffffff',
+    shadowColor = null,
+    shadowBlur = 0,
+    maxWidth = null,
+    minSize = 14,
+    align = 'center'
+  } = options;
+
+  ctx.save();
+  ctx.direction = 'rtl';
+  ctx.textAlign = align;
+  ctx.textBaseline = 'alphabetic';
+
+  if (shadowColor) {
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = shadowBlur;
+  }
+
+  /* ─── إذا في حد أقصى للعرض → نقلّص الحجم تدريجياً ─── */
+  if (maxWidth) {
+    const sizeMatch = font.match(/(\d+)px/);
+    const startSize = sizeMatch ? parseInt(sizeMatch[1], 10) : 46;
+    const fontBuilder = (s) => font.replace(/\d+px/, `${s}px`);
+
+    let size = startSize;
+    while (size > minSize) {
+      ctx.font = fontBuilder(size);
+      if (ctx.measureText(text).width <= maxWidth) break;
+      size -= 2;
+    }
+  } else {
+    ctx.font = font;
+  }
+
+  ctx.fillStyle = color;
+  ctx.fillText(text, x, y);
+
+  ctx.restore();
+}
+
+/**
+ * رسم النص مع قياس العرض الفعلي (بدون رسم)
+ * مفيد للتشخيص
+ */
+function measureArabicText(ctx, text, font) {
+  ctx.save();
+  ctx.direction = 'rtl';
+  ctx.font = font;
+  const w = ctx.measureText(text).width;
+  ctx.restore();
+  return w;
+}
 const CERT = {
   WIDTH: 1200,
   HEIGHT: 700,
@@ -73,10 +137,74 @@ function generateCertificateNumber(militaryId) {
 }
 
 /* ═══════════════════════════════════════════════════════════
+ *  ✨ دوال مساعدة للخطوط العربية
+ *  ═══════════════════════════════════════════════════════════ */
+
+/**
+ * رسم نص مع تقليص تلقائي حتى يدخل في العرض المطلوب
+ */
+function drawFittedText(ctx, text, x, y, maxWidth, fontBuilder, startSize, minSize = 14) {
+  let size = startSize;
+  while (size > minSize) {
+    ctx.font = fontBuilder(size);
+    if (ctx.measureText(text).width <= maxWidth) break;
+    size -= 2;
+  }
+  ctx.fillText(text, x, y);
+  return size;
+}
+
+/**
+ * رسم نص عربي مع ضبط RTL والوسط
+ */
+function drawArabicText(ctx, text, x, y, options = {}) {
+  const {
+    font = '900 46px "Cairo", "Almarai", sans-serif',
+    color = '#ffffff',
+    shadowColor = null,
+    shadowBlur = 0,
+    maxWidth = null,
+    minSize = 14
+  } = options;
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'alphabetic';
+  ctx.direction = 'rtl';
+
+  ctx.fillStyle = color;
+  if (shadowColor) {
+    ctx.shadowColor = shadowColor;
+    ctx.shadowBlur = shadowBlur;
+  }
+
+  if (maxWidth) {
+    /* استخراج الحجم من template */
+    const sizeMatch = font.match(/(\d+)px/);
+    const startSize = sizeMatch ? parseInt(sizeMatch[1], 10) : 46;
+    const fontBuilder = (s) => font.replace(/\d+px/, `${s}px`);
+
+    let size = startSize;
+    while (size > minSize) {
+      ctx.font = fontBuilder(size);
+      if (ctx.measureText(text).width <= maxWidth) break;
+      size -= 2;
+    }
+    ctx.fillText(text, x, y);
+  } else {
+    ctx.font = font;
+    ctx.fillText(text, x, y);
+  }
+
+  ctx.shadowBlur = 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
  *                    توليد الشهادة
  *  ═══════════════════════════════════════════════════════════ */
 
 async function generateCertificate(data) {
+    /* ✨ انتظر حتى تنتهي الخطوط من التحميل */
+  await ensureFontsReady();
   const {
     name = 'Unknown',
     militaryId = 'M-00',
@@ -87,9 +215,10 @@ async function generateCertificate(data) {
     logoPath = null
   } = data;
 
-  const canvas = createCanvas(CERT.WIDTH, CERT.HEIGHT);
-  const ctx = canvas.getContext('2d');
-
+const canvas = createCanvas(CERT.WIDTH, CERT.HEIGHT);
+const ctx = canvas.getContext('2d');
+ctx.direction = 'rtl';
+ctx.textBaseline = 'alphabetic';
   /* ═══════════════════════════════════════════════
    *  1. الخلفية — تدرج ملكي عميق
    *  ═══════════════════════════════════════════════ */
@@ -258,15 +387,17 @@ async function generateCertificate(data) {
   ctx.fillStyle = '#94a3b8';
   ctx.fillText('تُمنح هذه الشهادة الرسمية بكل فخر واعتزاز إلى', CERT.WIDTH / 2, 305);
 
-  /* ═══════════════════════════════════════════════
-   *  11. اسم العضو — نجم الشهادة
-   *  ═══════════════════════════════════════════════ */
-  ctx.font = '900 56px "Cairo", sans-serif';
-  ctx.fillStyle = '#ffffff';
-  ctx.shadowColor = 'rgba(59, 130, 246, 0.9)';
-  ctx.shadowBlur = 35;
-  ctx.fillText(name, CERT.WIDTH / 2, 375);
-  ctx.shadowBlur = 0;
+/* ═══════════════════════════════════════════════
+ *  11. اسم العضو — نجم الشهادة
+ *  ═══════════════════════════════════════════════ */
+drawArabicText(ctx, String(name), CERT.WIDTH / 2, 375, {
+  font: '900 56px "Cairo", "Almarai", "Amiri", sans-serif',
+  color: '#ffffff',
+  shadowColor: 'rgba(59, 130, 246, 0.9)',
+  shadowBlur: 35,
+  maxWidth: CERT.WIDTH - 200,
+  minSize: 22
+});
 
   /* خط أزرق تحت الاسم */
   const nameLine = ctx.createLinearGradient(280, 395, CERT.WIDTH - 280, 395);
@@ -969,6 +1100,9 @@ async function promoteDeputyToCommander(client, deputyId, issuedBy) {
  *  ═══════════════════════════════════════════════════════════ */
 
 async function generateInvalidatedCertificate(data) {
+  /* ✨ انتظر حتى تنتهي الخطوط من التحميل قبل أي رسم */
+  await ensureFontsReady();
+
   const {
     name = 'Unknown',
     militaryId = 'M-00',
@@ -976,8 +1110,10 @@ async function generateInvalidatedCertificate(data) {
     reason = 'termination'
   } = data;
 
-  const canvas = createCanvas(CERT.WIDTH, CERT.HEIGHT);
-  const ctx = canvas.getContext('2d');
+const canvas = createCanvas(CERT.WIDTH, CERT.HEIGHT);
+const ctx = canvas.getContext('2d');
+ctx.direction = 'rtl';
+ctx.textBaseline = 'alphabetic';
 
   /* ═══════════════════════════════════════════════
    *  1. الخلفية — تدرج أحمر داكن (مخيف لكن فخم)
