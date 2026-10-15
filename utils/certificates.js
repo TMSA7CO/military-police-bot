@@ -680,7 +680,9 @@ async function issueCertificate(client, data, options = {}) {
 
     if (logToChannel) {
       logResult = await logCertificateToChannel(client, {
-        certificateNumber, discordId, name, militaryId, roleName,
+        certificateNumber, discordId, name, militaryId,
+        roleName, roleNameAr,   // ✅ أضفنا roleNameAr
+        roleId,                  // ✅ وأضفنا roleId للاحتياط
         issuedBy, supersededInfo, isReissue: supersede
       });
       logged = logResult !== null && logResult !== undefined;
@@ -734,6 +736,7 @@ async function logCertificateToChannel(client, data) {
       name: data.name,
       militaryId: data.militaryId,
       roleName: data.roleName,
+      roleNameAr: data.roleNameAr,   // ✅ هذا هو الحل — نمرر الاسم العربي
       certificateNumber: data.certificateNumber,
       joinDate: new Date().toLocaleDateString('en-GB')
     });
@@ -919,6 +922,8 @@ async function reissueCertificateOnUpdate(client, discordId, updates, reason = '
       name: finalName,
       militaryId: finalMilitaryId,
       roleName: CONFIG.getRoleNameEnglish(finalRoleId),
+      roleNameAr: CONFIG.getRoleNameArabic(finalRoleId),   // ✅ أضفنا
+      roleId: finalRoleId,                                  // ✅ أضفنا
       issuedBy,
       supersededInfo,
       isReissue: true,
