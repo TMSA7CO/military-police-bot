@@ -6,7 +6,7 @@
 
 'use strict';
 
-const { Events, AuditLogEvent } = require('discord.js');
+const { Events } = require('discord.js');
 const CONFIG = require('../config');
 const firebase = require('../firebase');
 const logger = require('../utils/logger');
@@ -17,24 +17,7 @@ const memberActions = require('../utils/memberActions');
 const permissions = require('../utils/permissions');
 
 const processingMembers = new Set();
-/* ═══════════════════════════════════════════════════════════
- *  ✨ جلب مُنفّذ الحركة من Audit Logs
- *  ═══════════════════════════════════════════════════════════ */
-async function getAuditActor(guild, targetId, windowMs = 7000) {
-  try {
-    const logs = await guild.fetchAuditLogs({ limit: 10 }).catch(() => null);
-    if (!logs) return null;
 
-    const entry = logs.entries.find(e =>
-      e.target?.id === targetId &&
-      (Date.now() - e.createdTimestamp) < windowMs
-    );
-
-    return entry?.executor?.id || null;
-  } catch {
-    return null;
-  }
-}
 /* ═══════════════════════════════════════════════════════════
  *                    دوال مساعدة
  *  ═══════════════════════════════════════════════════════════ */
@@ -122,12 +105,6 @@ async function autoAddMember(client, member, newRole) {
     /* ─── استخراج الاسم ─── */
     const name = extractDisplayName(member);
 
-    /* ✨ جلب الفاعل الحقيقي */
-    const actorId = await getAuditActor(member.guild, member.id);
-    const byUserId = actorId || 'System (Auto-Detect)';
-
-    console.log(`[autoAddMember] 👤 الفاعل: ${byUserId}`);
-
     /* ─── استدعاء الدالة الموحدة ─── */
     const result = await memberActions.performAddMember(
       client,
@@ -135,7 +112,7 @@ async function autoAddMember(client, member, newRole) {
       name,
       newRole,
       'إضافة يدوية من Discord',
-      byUserId,
+      'System (Auto-Detect)',
       'manual'
     );
 
@@ -222,16 +199,12 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
     }
 
     /* ─── إعادة إصدار الشهادة ─── */
-    /* ✨ الفاعل الحقيقي */
-    const actorId = await getAuditActor(member.guild, member.id);
-    const byUserId = actorId || 'System (Auto-Detect)';
-
     await certificates.reissueCertificateOnUpdate(
       client,
       member.id,
       { militaryId: newMilitaryId, roleId: newRole },
       isPromotion ? 'promotion' : 'demotion',
-      byUserId
+      'System (Auto-Detect)'
     );
 
     /* ─── لوق ─── */
@@ -280,21 +253,7 @@ async function handleNicknameChange(client, member, oldNickname, newNickname) {
     /* ─── لو الاسم الجديد فارغ، تجاهل ─── */
     if (!newClean || newClean.length < 2) return null;
 
-    /* ✨✨✨ منع التكرار: لو العضو عُدّل خلال آخر 5 ثوان، تجاهل ✨✨✨ */
-    const memberData = await firebase.getMember(member.id);
-    if (memberData && memberData.lastUpdate) {
-      const dt = Date.now() - memberData.lastUpdate;
-      if (dt < 5000) {
-        console.log(`[handleNicknameChange] ⏭️ تخطي — البوت حدّث العضو خلال ${dt}ms`);
-        return null;
-      }
-    }
-
     console.log(`[handleNicknameChange] ✏️ تغيير يدوي: "${oldClean}" → "${newClean}"`);
-
-    /* ✨ جلب الفاعل الحقيقي */
-    const actorId = await getAuditActor(member.guild, member.id);
-    const byUserId = actorId || 'System (Auto-Detect)';
 
     /* ─── استدعاء الدالة الموحدة ─── */
     const result = await memberActions.performNameChange(
@@ -302,7 +261,7 @@ async function handleNicknameChange(client, member, oldNickname, newNickname) {
       member.id,
       newClean,
       'تغيير يدوي من Discord',
-      byUserId,
+      'System (Auto-Detect)',
       'manual'
     );
 
@@ -339,15 +298,11 @@ async function autoRemoveMember(client, member, removedRole) {
     }
 
     /* ─── استدعاء الدالة الموحدة ─── */
-    /* ✨ الفاعل الحقيقي */
-    const actorId = await getAuditActor(member.guild, member.id);
-    const byUserId = actorId || 'System (Auto-Detect)';
-
     const result = await memberActions.performTerminate(
       client,
       member.id,
       'ترميج يدوي من Discord',
-      byUserId,
+      'System (Auto-Detect)',
       'manual'
     );
 

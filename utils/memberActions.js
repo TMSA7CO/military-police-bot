@@ -175,127 +175,24 @@ async function deleteCertificateMessageFromDM(client, userId, certificateNumber)
  * @param {Array} certificatesList - قائمة الشهادات من Firebase
  * @returns {Object} - { fromLog, fromDM }
  */
-
-/* ═══════════════════════════════════════════════════════════
- *  ✨ حذف كل رسائل البوت في قناة الشهادات التي تخص العضو
- *  (تعيين + إبطال — كل شيء)
- *  ═══════════════════════════════════════════════════════════ */
-async function wipeAllUserCertMessagesFromLog(client, userId) {
-  try {
-    const channel = await client.channels.fetch(CERT_LOG_CHANNEL_ID).catch(() => null);
-    if (!channel) return 0;
-
-    let deleted = 0;
-    let before = null;
-    const mention = `<@${userId}>`;
-    const userIdStr = String(userId);
-
-    for (let batch = 0; batch < 5; batch++) {
-      const opts = { limit: 100 };
-      if (before) opts.before = before;
-
-      const messages = await channel.messages.fetch(opts).catch(() => null);
-      if (!messages || messages.size === 0) break;
-
-      before = messages.last()?.id;
-
-      for (const [, msg] of messages) {
-        if (msg.author.id !== client.user.id) continue;
-
-        const hit = msg.embeds.some(e => {
-          const d = String(e.description || '');
-          const f = String(e.footer?.text || '');
-          return d.includes(mention) || d.includes(userIdStr) || f.includes(userIdStr);
-        });
-
-        if (hit) {
-          await msg.delete().catch(() => {});
-          deleted++;
-          await new Promise(r => setTimeout(r, 250));
-        }
-      }
-
-      if (messages.size < 100) break;
-    }
-    return deleted;
-  } catch (err) {
-    console.error('[wipeAllUserCertMessagesFromLog]', err.message);
-    return 0;
-  }
-}
-
-/* ═══════════════════════════════════════════════════════════
- *  ✨ حذف كل رسائل الشهادات في DM العضو
- *  (تعيين + إبطال — أي رسالة تحتوي "شهادة")
- *  ═══════════════════════════════════════════════════════════ */
-async function wipeAllUserCertMessagesFromDM(client, userId) {
-  try {
-    const user = await client.users.fetch(userId).catch(() => null);
-    if (!user) return 0;
-
-    const dm = await user.createDM().catch(() => null);
-    if (!dm) return 0;
-
-    let deleted = 0;
-    let before = null;
-
-    for (let batch = 0; batch < 3; batch++) {
-      const opts = { limit: 100 };
-      if (before) opts.before = before;
-
-      const messages = await dm.messages.fetch(opts).catch(() => null);
-      if (!messages || messages.size === 0) break;
-
-      before = messages.last()?.id;
-
-      for (const [, msg] of messages) {
-        if (msg.author.id !== client.user.id) continue;
-
-        const isCert = msg.embeds.some(e => {
-          const t = String(e.title || '');
-          const d = String(e.description || '');
-          return t.includes('شهادة') || d.includes('شهادة')
-              || t.toLowerCase().includes('certificate');
-        }) || msg.attachments?.some(a =>
-          a.name?.includes('Certificate') || a.name?.includes('INVALIDATED')
-        );
-
-        if (isCert) {
-          await msg.delete().catch(() => {});
-          deleted++;
-          await new Promise(r => setTimeout(r, 250));
-        }
-      }
-
-      if (messages.size < 100) break;
-    }
-    return deleted;
-  } catch (err) {
-    console.error('[wipeAllUserCertMessagesFromDM]', err.message);
-    return 0;
-  }
-}
-
 async function deleteAllCertificateMessages(client, userId, certificatesList) {
   const result = { fromLog: 0, fromDM: 0 };
 
-  /* ✨ الحذف الشامل أولاً (يمسح أي شهادة قديمة — تعيين أو إبطال) */
-  result.fromLog += await wipeAllUserCertMessagesFromLog(client, userId);
-  result.fromDM  += await wipeAllUserCertMessagesFromDM(client, userId);
+  if (!Array.isArray(certificatesList) || certificatesList.length === 0) {
+    return result;
+  }
 
-  /* ✨ حذف احتياطي بالرقم (لو فيه رسالة ما فيها منشن) */
-  if (Array.isArray(certificatesList) && certificatesList.length > 0) {
-    for (const cert of certificatesList) {
-      if (!cert.certificateNumber) continue;
+  for (const cert of certificatesList) {
+    if (!cert.certificateNumber) continue;
 
-      const logR = await deleteCertificateMessageFromLog(client, cert.certificateNumber);
-      result.fromLog += logR.deleted || 0;
+    const logResult = await deleteCertificateMessageFromLog(client, cert.certificateNumber);
+    result.fromLog += logResult.deleted || 0;
 
-      const dmR = await deleteCertificateMessageFromDM(client, userId, cert.certificateNumber);
-      result.fromDM += dmR.deleted || 0;
+    const dmResult = await deleteCertificateMessageFromDM(client, userId, cert.certificateNumber);
+    result.fromDM += dmResult.deleted || 0;
 
-      await new Promise(r => setTimeout(r, 200));
-    }
+    /* ─── تأخير بسيط لتجنب Rate Limit ─── */
+    await new Promise(r => setTimeout(r, 300));
   }
 
   return result;
@@ -738,9 +635,5 @@ module.exports = {
   refreshSynchronizedPanel,
   deleteCertificateMessageFromLog,
   deleteCertificateMessageFromDM,
-  deleteAllCertificateMessages,
-
-  /* ✨ دوال الحذف الشامل (جديد) */
-  wipeAllUserCertMessagesFromLog,
-  wipeAllUserCertMessagesFromDM
+  deleteAllCertificateMessages
 };

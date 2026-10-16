@@ -12,15 +12,6 @@ const CONFIG = require('../config');
 /* ✨ جديد — إجبار تحميل الخطوط قبل أي رسم */
 const { ensureFontsReady } = require('./fontManager');
 /* ═══════════════════════════════════════════════════════════
- *  ✨ دالة موحدة لعرض المُصدر
- *  ═══════════════════════════════════════════════════════════ */
-function formatIssuer(issuedBy) {
-  if (!issuedBy) return 'النظام';
-  const str = String(issuedBy).trim();
-  if (/^\d{17,20}$/.test(str)) return `<@${str}>`;
-  return str;
-}
-/* ═══════════════════════════════════════════════════════════
  *  ✨ دوال مساعدة لرسم النص العربي على Canvas
  *  ═══════════════════════════════════════════════════════════ */
 
@@ -649,11 +640,6 @@ async function issueCertificate(client, data, options = {}) {
 
     const certificateNumber = generateCertificateNumber(militaryId);
 
-    /* ✨ امسح كل الشهادات القديمة قبل إصدار الجديدة */
-    const memberActions = require('./memberActions');
-    const allCerts = await firebase.getMemberCertificates(discordId);
-    await memberActions.deleteAllCertificateMessages(client, discordId, allCerts).catch(() => {});
-
     /* ═══════════════════════════════════════════════
      *  1. استبدال الشهادات القديمة (لو supersede)
      *  ═══════════════════════════════════════════════ */
@@ -776,7 +762,7 @@ async function logCertificateToChannel(client, data) {
         { name: '🆔 الرقم العسكري', value: `\`${data.militaryId}\``, inline: true },
         { name: '🎖️ الرتبة', value: data.roleName, inline: true },
         { name: '🔢 رقم الشهادة', value: `\`${data.certificateNumber}\``, inline: true },
-        { name: '✍️ أصدرها', value: formatIssuer(data.issuedBy), inline: true },        
+        { name: '✍️ أصدرها', value: data.issuedBy ? `<@${data.issuedBy}>` : 'النظام', inline: true },
         {
           name: '📌 نوع الإصدار',
           value: data.isReissue
@@ -823,13 +809,6 @@ async function logCertificateToChannel(client, data) {
  */
 async function logCertificateInvalidation(client, data) {
   try {
-    /* ✨ امسح كل شهادات العضو القديمة (تعيين + إبطال) قبل إبطال جديد */
-    if (data.discordId) {
-      const memberActions = require('./memberActions');
-      const allCerts = await firebase.getMemberCertificates(data.discordId).catch(() => []);
-      await memberActions.deleteAllCertificateMessages(client, data.discordId, allCerts).catch(() => {});
-    }
-
     const channelId = CONFIG.CHANNELS.CERTIFICATE_LOG || '1557866857334313132';
     const channel = await client.channels.fetch(channelId).catch(() => null);
     if (!channel) return null;
@@ -861,7 +840,7 @@ async function logCertificateInvalidation(client, data) {
         { name: '🆔 الرقم العسكري السابق', value: `\`${data.militaryId || '—'}\``, inline: true },
         { name: '📌 السبب', value: data.reason === 'termination' ? '🗑️ ترميج' : data.reason, inline: true },
         { name: '📊 عدد الشهادات المُبطلة', value: `**${data.certificatesCount}**`, inline: false },
-        { name: '👤 بواسطة', value: formatIssuer(data.by), inline: true }      
+        { name: '👤 بواسطة', value: data.by ? `<@${data.by}>` : 'النظام', inline: true }
       )
       .setFooter({
         text: CONFIG.TEXT.FOOTER,
