@@ -135,6 +135,10 @@ module.exports = {
 
       /* ─── لوق الإبطال (مع صورة حمراء) ─── */
       if (certResult.invalidatedCount > 0) {
+        /* ✨ حذف رسائل الإبطال القديمة أولاً */
+        await memberActions.deleteInvalidationMessageFromLog(client, member.id, militaryId).catch(() => {});
+        await memberActions.deleteInvalidationMessageFromDM(client, member.id).catch(() => {});
+
         await certificates.logCertificateInvalidation(client, {
           discordId: member.id,
           name,

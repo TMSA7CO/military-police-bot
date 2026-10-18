@@ -197,6 +197,91 @@ async function deleteAllCertificateMessages(client, userId, certificatesList) {
 
   return result;
 }
+/* ═══════════════════════════════════════════════════════════
+ *              ✨ 4.1 حذف رسائل الإبطال القديمة من قناة السجل
+ *  يبحث عن أي رسالة إبطال تخص العضو ويحذفها
+ *  ═══════════════════════════════════════════════════════════ */
+async function deleteInvalidationMessageFromLog(client, targetUserId, militaryId) {
+  if (!targetUserId) return { deleted: 0 };
+
+  try {
+    const channel = await client.channels.fetch(CERT_LOG_CHANNEL_ID).catch(() => null);
+    if (!channel) return { deleted: 0 };
+
+    const messages = await channel.messages.fetch({ limit: SEARCH_LIMIT }).catch(() => null);
+    if (!messages || messages.size === 0) return { deleted: 0 };
+
+    /* ─── فلترة: رسائل البوت + عنوان "إبطال شهادة" + تخص العضو ─── */
+    const invalidationMessages = messages.filter(m => {
+      if (m.author.id !== client.user.id) return false;
+
+      return m.embeds.some(e => {
+        if (!e.title?.includes('إبطال شهادة')) return false;
+
+        const fields = e.fields || [];
+        return fields.some(f => {
+          const v = String(f.value || '');
+          if (targetUserId && v.includes(targetUserId)) return true;
+          if (militaryId && v.includes(militaryId)) return true;
+          return false;
+        });
+      });
+    });
+
+    let deleted = 0;
+    for (const msg of invalidationMessages.values()) {
+      try {
+        await msg.delete();
+        deleted++;
+      } catch {}
+    }
+
+    return { deleted };
+
+  } catch (err) {
+    console.error('[deleteInvalidationMessageFromLog]', err.message);
+    return { deleted: 0, error: err.message };
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+ *              ✨ 4.2 حذف رسائل الإبطال القديمة من DM
+ *  يبحث في DM العضو عن رسائل إبطال قديمة من البوت
+ *  ═══════════════════════════════════════════════════════════ */
+async function deleteInvalidationMessageFromDM(client, targetUserId) {
+  if (!targetUserId) return { deleted: 0 };
+
+  try {
+    const user = await client.users.fetch(targetUserId).catch(() => null);
+    if (!user) return { deleted: 0 };
+
+    const dmChannel = await user.createDM().catch(() => null);
+    if (!dmChannel) return { deleted: 0 };
+
+    const messages = await dmChannel.messages.fetch({ limit: SEARCH_LIMIT }).catch(() => null);
+    if (!messages || messages.size === 0) return { deleted: 0 };
+
+    /* ─── رسائل البوت بعنوان "تم إبطال شهادتك" ─── */
+    const invalidationMessages = messages.filter(m => {
+      if (m.author.id !== client.user.id) return false;
+      return m.embeds.some(e => e.title?.includes('إبطال شهادتك'));
+    });
+
+    let deleted = 0;
+    for (const msg of invalidationMessages.values()) {
+      try {
+        await msg.delete();
+        deleted++;
+      } catch {}
+    }
+
+    return { deleted };
+
+  } catch (err) {
+    console.error('[deleteInvalidationMessageFromDM]', err.message);
+    return { deleted: 0, error: err.message };
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════
  *              ✨ 5. ترميج عضو (موحّد)
@@ -245,9 +330,14 @@ async function performTerminate(client, targetUserId, reason, byUserId = 'System
     const certResult = await firebase.invalidateAllCertificates(targetUserId, 'termination');
     result.invalidatedCount = certResult.invalidatedCount || 0;
 
-    /* ─── 5. لوق الإبطال + DM شهادة إبطال ─── */
+    /* ─── 5. حذف الإبطالات القديمة + إرسال إبطال جديد ─── */
     if (certResult.invalidatedCount > 0) {
-      /* لوق الإبطال */
+      /* ✨ حذف رسائل الإبطال القديمة أولاً (لوق + DM) */
+      const oldLog = await deleteInvalidationMessageFromLog(client, targetUserId, militaryId).catch(() => ({ deleted: 0 }));
+      const oldDM = await deleteInvalidationMessageFromDM(client, targetUserId).catch(() => ({ deleted: 0 }));
+      console.log(`   🗑️ حذف إبطالات قديمة: ${oldLog.deleted} لوق، ${oldDM.deleted} DM`);
+
+      /* لوق الإبطال الجديد */
       await certificates.logCertificateInvalidation(client, {
         discordId: targetUserId,
         name,
@@ -635,5 +725,7 @@ module.exports = {
   refreshSynchronizedPanel,
   deleteCertificateMessageFromLog,
   deleteCertificateMessageFromDM,
-  deleteAllCertificateMessages
+  deleteAllCertificateMessages,
+  deleteInvalidationMessageFromLog,
+  deleteInvalidationMessageFromDM
 };
