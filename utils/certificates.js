@@ -762,7 +762,8 @@ async function logCertificateToChannel(client, data) {
         { name: '🆔 الرقم العسكري', value: `\`${data.militaryId}\``, inline: true },
         { name: '🎖️ الرتبة', value: data.roleName, inline: true },
         { name: '🔢 رقم الشهادة', value: `\`${data.certificateNumber}\``, inline: true },
-        { name: '✍️ أصدرها', value: data.issuedBy ? `<@${data.issuedBy}>` : 'النظام', inline: true },
+        { name: '✍️ أصدرها', value: /^\d{17,20}$/.test(String(data.issuedBy || '')) ? `<@${data.issuedBy}>` : (data.issuedBy || 'النظام'), inline: true },
+
         {
           name: '📌 نوع الإصدار',
           value: data.isReissue
@@ -840,7 +841,8 @@ async function logCertificateInvalidation(client, data) {
         { name: '🆔 الرقم العسكري السابق', value: `\`${data.militaryId || '—'}\``, inline: true },
         { name: '📌 السبب', value: data.reason === 'termination' ? '🗑️ ترميج' : data.reason, inline: true },
         { name: '📊 عدد الشهادات المُبطلة', value: `**${data.certificatesCount}**`, inline: false },
-        { name: '👤 بواسطة', value: data.by ? `<@${data.by}>` : 'النظام', inline: true }
+        { name: '👤 بواسطة', value: /^\d{17,20}$/.test(String(data.by || '')) ? `<@${data.by}>` : (data.by || 'النظام'), inline: true }
+        
       )
       .setFooter({
         text: CONFIG.TEXT.FOOTER,

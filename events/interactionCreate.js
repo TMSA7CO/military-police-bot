@@ -2769,16 +2769,6 @@ module.exports = {
           return mod.handleStopButton(interaction, client, id.replace('support_stop_', ''));
         }
 
-        /* ─── Monitor Cancel/Stop (جديد) ─── */
-        if (id === 'monitor_setup_cancel') {
-          const mod = require('../commands/monitor.js');
-          return mod.handleSetupCancel(interaction, client);
-        }
-
-        if (id.startsWith('monitor_stop_')) {
-          const mod = require('../commands/monitor.js');
-          return mod.handleStopAll(interaction, client, id.replace('monitor_stop_', ''));
-        }
 
         /* ─── التوظيف ─── */
         if (id === 'recruitment_open') return handleRecruitmentOpen(interaction, client);
@@ -2840,11 +2830,6 @@ module.exports = {
       if (interaction.isStringSelectMenu()) {
         const id = interaction.customId;
 
-        /* ─── Monitor Count (جديد) ─── */
-        if (id === 'monitor_count_select') {
-          const mod = require('../commands/monitor.js');
-          return mod.handleCountSelect(interaction, client);
-        }
 
         if (id === 'panel_add_points_select') return handlePanelAddPointsSelect(interaction, client);
         if (id === 'panel_deduct_points_select') return handlePanelDeductPointsSelect(interaction, client);
@@ -2893,12 +2878,6 @@ module.exports = {
           return mod.handleChannelSelect(interaction, client);
         }
 
-        /* ─── المراقبة (ديناميكي) ─── */
-        if (id.startsWith('monitor_channel_select_')) {
-          const idx = parseInt(id.replace('monitor_channel_select_', ''), 10);
-          const mod = require('../commands/monitor.js');
-          return mod.handleChannelSelect(interaction, client, idx);
-        }
       }
 
       /* ═══════════════════════════════════════════════

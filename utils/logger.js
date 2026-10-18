@@ -289,6 +289,20 @@ const LOG_CONFIG = {
 };
 
 /* ═══════════════════════════════════════════════════════════
+ *  ✨ تنظيف الـ mentions غير الصحيحة
+ *  - <@12345678901234567> (snowflake صحيح) → يبقى كما هو
+ *  - <@System> أو <@System (Auto-Detect)> → يتحول لنص عادي
+ *  ═══════════════════════════════════════════════════════════ */
+function sanitizeMentions(text) {
+  if (!text || typeof text !== 'string') return text;
+  return text.replace(/<@!?([^>]+)>/g, (match, id) => {
+    if (/^\d{17,20}$/.test(id.trim())) return match;
+    return id.trim();
+  });
+}
+
+
+/* ═══════════════════════════════════════════════════════════
  *                    الدالة الرئيسية
  *  ═══════════════════════════════════════════════════════════ */
 
@@ -327,7 +341,7 @@ async function sendLog(client, type, data = {}) {
     if (data.fields && Array.isArray(data.fields) && data.fields.length > 0) {
       const fields = data.fields.slice(0, 25).map(f => ({
         name: f.name || '—',
-        value: String(f.value || '—').substring(0, 1024),
+        value: sanitizeMentions(String(f.value || '—')).substring(0, 1024),
         inline: f.inline === true
       }));
       embed.addFields(fields);

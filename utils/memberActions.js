@@ -456,7 +456,7 @@ async function performNameChange(client, targetUserId, newName, reason, byUserId
               `📛 **الاسم القديم:** \`${oldName}\`\n` +
               `✨ **الاسم الجديد:** \`${cleanName}\`\n` +
               `📝 **السبب:** ${reason || 'غير محدد'}\n` +
-              `👤 **بواسطة:** ${byUserId === 'System' ? 'النظام' : `<@${byUserId}>`}`,
+              `👤 **بواسطة:** ${/^\d{17,20}$/.test(String(byUserId)) ? `<@${byUserId}>` : (byUserId || 'النظام')}`,
             footer: { text: 'Military Police — Ministry of Defense' },
             timestamp: new Date().toISOString()
           }]

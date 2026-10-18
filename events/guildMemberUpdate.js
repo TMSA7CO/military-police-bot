@@ -6,7 +6,7 @@
 
 'use strict';
 
-const { Events } = require('discord.js');
+const { Events, AuditLogEvent } = require('discord.js');
 const CONFIG = require('../config');
 const firebase = require('../firebase');
 const logger = require('../utils/logger');
@@ -17,6 +17,29 @@ const memberActions = require('../utils/memberActions');
 const permissions = require('../utils/permissions');
 
 const processingMembers = new Set();
+/* ═══════════════════════════════════════════════════════════
+ *  ✨ جلب المنفذ الحقيقي من Audit Log
+ *  ─ يحاول مرتين: فوراً + انتظار 400ms
+ *  ─ يعيد null لو ما لقى
+ *  ═══════════════════════════════════════════════════════════ */
+async function fetchAuditExecutor(guild, targetId, actionType) {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const logs = await guild.fetchAuditLogs({ limit: 5, type: actionType }).catch(() => null);
+      if (logs) {
+        const entry = logs.entries.find(e =>
+          e.target?.id === targetId &&
+          (Date.now() - e.createdTimestamp) < 15000
+        );
+        if (entry?.executor?.id) return entry.executor.id;
+      }
+    } catch (err) {
+      console.warn('[fetchAuditExecutor]', err.message);
+    }
+    if (attempt === 0) await new Promise(r => setTimeout(r, 400));
+  }
+  return null;
+}
 
 /* ═══════════════════════════════════════════════════════════
  *                    دوال مساعدة
@@ -105,6 +128,10 @@ async function autoAddMember(client, member, newRole) {
     /* ─── استخراج الاسم ─── */
     const name = extractDisplayName(member);
 
+    /* ─── ✨ جلب المنفذ من Audit Log ─── */
+    const executorId = await fetchAuditExecutor(member.guild, member.id, AuditLogEvent.MemberRoleUpdate);
+    console.log(`   👤 المنفذ: ${executorId || 'System'}`);
+
     /* ─── استدعاء الدالة الموحدة ─── */
     const result = await memberActions.performAddMember(
       client,
@@ -112,7 +139,7 @@ async function autoAddMember(client, member, newRole) {
       name,
       newRole,
       'إضافة يدوية من Discord',
-      'System (Auto-Detect)',
+      executorId || 'System (Auto-Detect)',
       'manual'
     );
 
@@ -134,6 +161,10 @@ async function autoAddMember(client, member, newRole) {
  */
 async function autoUpdateRole(client, member, oldRole, newRole) {
   try {
+    /* ─── ✨ جلب المنفذ من Audit Log ─── */
+    const executorId = await fetchAuditExecutor(member.guild, member.id, AuditLogEvent.MemberRoleUpdate);
+    console.log(`[autoUpdateRole] 👤 المنفذ: ${executorId || 'System'}`);
+
     const memberData = await firebase.getMember(member.id);
     if (!memberData) {
       /* لو ما كان موجود، نضيفه مباشرة */
@@ -204,7 +235,7 @@ async function autoUpdateRole(client, member, oldRole, newRole) {
       member.id,
       { militaryId: newMilitaryId, roleId: newRole },
       isPromotion ? 'promotion' : 'demotion',
-      'System (Auto-Detect)'
+      executorId || 'System (Auto-Detect)'
     );
 
     /* ─── لوق ─── */
@@ -255,13 +286,17 @@ async function handleNicknameChange(client, member, oldNickname, newNickname) {
 
     console.log(`[handleNicknameChange] ✏️ تغيير يدوي: "${oldClean}" → "${newClean}"`);
 
+    /* ─── ✨ جلب المنفذ من Audit Log ─── */
+    const executorId = await fetchAuditExecutor(member.guild, member.id, AuditLogEvent.MemberUpdate);
+    console.log(`   👤 المنفذ: ${executorId || 'System'}`);
+
     /* ─── استدعاء الدالة الموحدة ─── */
     const result = await memberActions.performNameChange(
       client,
       member.id,
       newClean,
       'تغيير يدوي من Discord',
-      'System (Auto-Detect)',
+      executorId || 'System (Auto-Detect)',
       'manual'
     );
 
@@ -285,6 +320,10 @@ async function autoRemoveMember(client, member, removedRole) {
   try {
     console.log(`[autoRemoveMember] 🗑️ ترميج يدوي: ${member.user.tag}`);
 
+    /* ─── ✨ جلب المنفذ من Audit Log ─── */
+    const executorId = await fetchAuditExecutor(member.guild, member.id, AuditLogEvent.MemberRoleUpdate);
+    console.log(`   👤 المنفذ: ${executorId || 'System'}`);
+
     /* ─── التحقق من وجود العضو في Firebase ─── */
     const memberData = await firebase.getMember(member.id);
 
@@ -302,10 +341,10 @@ async function autoRemoveMember(client, member, removedRole) {
       client,
       member.id,
       'ترميج يدوي من Discord',
-      'System (Auto-Detect)',
+      executorId || 'System (Auto-Detect)',
       'manual'
     );
-
+    
     return result;
 
   } catch (err) {
