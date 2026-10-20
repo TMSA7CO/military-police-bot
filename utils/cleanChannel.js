@@ -177,7 +177,7 @@ async function cleanChannel(channel, options = {}) {
             try {
               await msg.delete();
               totalDeleted++;
-              await sleep(150); // تأخير بسيط بين كل رسالة
+              await sleep(50); // تأخير بسيط بين كل رسالة
             } catch (e) {
               // تجاهل
             }
@@ -190,7 +190,7 @@ async function cleanChannel(channel, options = {}) {
         try {
           await msg.delete();
           totalDeleted++;
-          await sleep(150);
+          await sleep(50);
         } catch (e) {
           // تجاهل الرسائل اللي فشل حذفها
         }

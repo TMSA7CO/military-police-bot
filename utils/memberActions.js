@@ -185,14 +185,14 @@ async function deleteAllCertificateMessages(client, userId, certificatesList) {
   for (const cert of certificatesList) {
     if (!cert.certificateNumber) continue;
 
-    const logResult = await deleteCertificateMessageFromLog(client, cert.certificateNumber);
+    /* ✨ تشغيل log + DM بالتوازي — مستقلان تماماً */
+    const [logResult, dmResult] = await Promise.all([
+      deleteCertificateMessageFromLog(client, cert.certificateNumber).catch(() => ({ deleted: 0 })),
+      deleteCertificateMessageFromDM(client, userId, cert.certificateNumber).catch(() => ({ deleted: 0 }))
+    ]);
+
     result.fromLog += logResult.deleted || 0;
-
-    const dmResult = await deleteCertificateMessageFromDM(client, userId, cert.certificateNumber);
     result.fromDM += dmResult.deleted || 0;
-
-    /* ─── تأخير بسيط لتجنب Rate Limit ─── */
-    await new Promise(r => setTimeout(r, 300));
   }
 
   return result;
@@ -228,12 +228,14 @@ async function deleteInvalidationMessageFromLog(client, targetUserId, militaryId
       });
     });
 
+    /* ✨ حذف بالتوازي — عادةً رسالة واحدة، لكن آمن لو أكثر */
+    const deleteResults = await Promise.allSettled(
+      Array.from(invalidationMessages.values()).map(m => m.delete())
+    );
+
     let deleted = 0;
-    for (const msg of invalidationMessages.values()) {
-      try {
-        await msg.delete();
-        deleted++;
-      } catch {}
+    for (const r of deleteResults) {
+      if (r.status === 'fulfilled') deleted++;
     }
 
     return { deleted };
@@ -267,12 +269,14 @@ async function deleteInvalidationMessageFromDM(client, targetUserId) {
       return m.embeds.some(e => e.title?.includes('إبطال شهادتك'));
     });
 
+    /* ✨ حذف بالتوازي — عادةً رسالة واحدة، لكن آمن لو أكثر */
+    const deleteResults = await Promise.allSettled(
+      Array.from(invalidationMessages.values()).map(m => m.delete())
+    );
+
     let deleted = 0;
-    for (const msg of invalidationMessages.values()) {
-      try {
-        await msg.delete();
-        deleted++;
-      } catch {}
+    for (const r of deleteResults) {
+      if (r.status === 'fulfilled') deleted++;
     }
 
     return { deleted };
@@ -332,9 +336,11 @@ async function performTerminate(client, targetUserId, reason, byUserId = 'System
 
     /* ─── 5. حذف الإبطالات القديمة + إرسال إبطال جديد ─── */
     if (certResult.invalidatedCount > 0) {
-      /* ✨ حذف رسائل الإبطال القديمة أولاً (لوق + DM) */
-      const oldLog = await deleteInvalidationMessageFromLog(client, targetUserId, militaryId).catch(() => ({ deleted: 0 }));
-      const oldDM = await deleteInvalidationMessageFromDM(client, targetUserId).catch(() => ({ deleted: 0 }));
+      /* ✨ حذف رسائل الإبطال القديمة أولاً — بالتوازي */
+      const [oldLog, oldDM] = await Promise.all([
+        deleteInvalidationMessageFromLog(client, targetUserId, militaryId).catch(() => ({ deleted: 0 })),
+        deleteInvalidationMessageFromDM(client, targetUserId).catch(() => ({ deleted: 0 }))
+      ]);
       console.log(`   🗑️ حذف إبطالات قديمة: ${oldLog.deleted} لوق، ${oldDM.deleted} DM`);
 
       /* لوق الإبطال الجديد */
