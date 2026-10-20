@@ -488,7 +488,7 @@ async function handleApplicationRemoveReject(interaction, client, appId) {
           )
           .addFields({
             name: '📝 رابط التقديم',
-            value: 'https://military-police-website.onrender.com/apply',
+            value: 'https://military-police-dod.onrender.com/apply',
             inline: false
           })
           .setFooter({
